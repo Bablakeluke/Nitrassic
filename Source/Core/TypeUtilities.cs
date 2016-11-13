@@ -28,11 +28,12 @@ namespace Nitrassic
 				return "number";
 			if (obj is string || obj is ConcatenatedString)
 				return "string";
-			if (obj is FunctionInstance)
+			if (obj is FunctionInstance || obj is Compiler.FunctionMethodGenerator || obj is System.Reflection.MethodBase)
 				return "function";
-			if (obj is ObjectInstance)
+			
+			// Anything else is just "object".
 				return "object";
-			throw new InvalidOperationException("Unsupported object type.");
+			
 		}
 
 		/// <summary>
@@ -93,7 +94,7 @@ namespace Nitrassic
 				obj = ((ConcatenatedString)obj).ToString();
 			return obj;
 		}
-
+		
 		/// <summary>
 		/// Enumerates the names of the enumerable properties on the given object, including
 		/// properties defined on the object's prototype.  Used by the for-in statement.
@@ -101,21 +102,47 @@ namespace Nitrassic
 		/// <param name="engine"> The script engine used to convert the given value to an object. </param>
 		/// <param name="obj"> The object to enumerate. </param>
 		/// <returns> An enumerator that iteratively returns property names. </returns>
-		public static IEnumerable<string> EnumeratePropertyNames(ScriptEngine engine, object obj)
+		public static IEnumerator<object> EnumeratePropertyValues(ScriptEngine engine, object obj)
 		{
-			
+			yield return (object)"a";
+			/*
 			// Get the proto:
-			Prototype obj2=TypeConverter.ToPrototype(obj,engine);
+			Prototype obj2=engine.Prototypes.Get(obj.GetType());
 			
 			if (obj2==null)
 				yield break;
 			
-			foreach (KeyValuePair<string, PropertyVariable> property in obj2.Properties)
-			{
-				if(property.Value.IsEnumerable)
-				{
-					yield return property.Key;
-				}
+			IEnumerable<object> values=obj2.PropertyValues(obj);
+			
+			foreach(object val in values){
+				
+				yield return val;
+			}*/
+			
+		}
+		
+		/// <summary>
+		/// Enumerates the names of the enumerable properties on the given object, including
+		/// properties defined on the object's prototype.  Used by the for-in statement.
+		/// </summary>
+		/// <param name="engine"> The script engine used to convert the given value to an object. </param>
+		/// <param name="obj"> The object to enumerate. </param>
+		/// <returns> An enumerator that iteratively returns property names. </returns>
+		public static IEnumerator<string> EnumeratePropertyNames(ScriptEngine engine, object obj)
+		{
+			
+			// Get the proto:
+			Prototype obj2=engine.Prototypes.Get(obj.GetType());
+			
+			if (obj2==null)
+				yield break;
+			
+			IEnumerable<string> set=obj2.PropertyEnumerator(obj);
+			
+			foreach(string str in set){
+				
+				yield return str;
+				
 			}
 			
 		}

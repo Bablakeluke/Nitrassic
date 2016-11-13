@@ -41,6 +41,14 @@ namespace Wrench{
 			Add(e.ToString());
 		}
 		
+		public static void Add(string message,bool trace){
+			Add(message);
+			if(trace){
+				Add(System.Environment.StackTrace);
+			}
+		}
+		
+		
 	}
 	
 }

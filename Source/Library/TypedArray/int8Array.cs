@@ -30,6 +30,16 @@ namespace Nitrassic.Library
 			
 		}
 		
+		public Int8Array(double length):base(TypedArrayStyle.Int8Array, (int)length){
+			
+			// Always uses a buffer as they are a byte[] anyway:
+			_Buffer=new ArrayBuffer(ByteLength);
+			
+			// Quick ref to the buffers buffer:
+			buffer=_Buffer.buffer;
+			
+		}
+		
 		public Int8Array(TypedArray array):base(TypedArrayStyle.Int8Array, array)
 		{
 			
@@ -57,6 +67,8 @@ namespace Nitrassic.Library
 			Add(iterableObj);
 			
 		}
+		
+		public Int8Array(ArrayBuffer buff):this(buff,0,0){}
 		
 		public Int8Array(ArrayBuffer buff,int byteOffset,int length):base(TypedArrayStyle.Int8Array, length==0?buff.ByteLength:length)
 		{

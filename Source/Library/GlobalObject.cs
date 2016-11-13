@@ -11,96 +11,6 @@ namespace Nitrassic.Library
 	public partial class Window
 	{
 		
-		/// <summary>The engine that this is the global scope for.</summary>
-		internal ScriptEngine Engine;
-		
-		/// <summary>The mapping of global name to the information about it.</summary>
-		[JSProperties(Hidden=true)]
-		internal Dictionary<string,GlobalVariable> Values=new Dictionary<string,GlobalVariable>();
-		
-		
-		/// <summary>Sets up the global scope.</summary>
-		public Window(ScriptEngine engine){
-			Engine=engine;
-		}
-		
-		/// <summary>
-		/// True if the given property name has been defined at all.
-		/// </summary>
-		internal bool HasProperty(string name)
-		{
-			return Values.ContainsKey(name);
-		}
-		
-		/// <summary>Gets or creates the named global.</summary>
-		internal GlobalVariable Get(string name){
-			GlobalVariable result;
-			
-			if(!Values.TryGetValue(name,out result)){
-				// Create it with unknown type:
-				result=new GlobalVariable(name,this);
-				Values[name]=result;
-			}
-			
-			return result;
-		}
-		
-		/// <summary>Sets the given named global. The runtime is strongly advised to avoid using this.</summary>
-		public object GetValue(string name){
-			
-			// Get the global:
-			GlobalVariable globalVariable=Get(name);
-			
-			return globalVariable.GetValue();
-			
-		}
-		
-		/// <summary>Sets the given named global. The runtime is strongly advised to avoid using this.</summary>
-		public GlobalVariable SetValue(string name,object value){
-			
-			// Get (or create) the global:
-			GlobalVariable globalVariable=Get(name);
-			
-			// Check the type:
-			Type type=globalVariable.Type;
-			
-			
-			if(value==null){
-				// Is the global a value type?
-				
-				if(type==null){
-					// Do nothing.
-					return globalVariable;
-				}
-				
-				if(type.IsValueType){
-					// It's collapsed:
-					globalVariable.Type=typeof(object);
-				}
-				
-			}else{
-			
-				// Get the values type:
-				Type valueType=value.GetType();
-				
-				if(type!=valueType){
-					// Not initialised or value is changing.
-					// Set the type to that of our value:
-					globalVariable.Type=valueType;
-				}
-				
-				// Ensure the prototype has been collected:
-				Engine.Prototypes.Get(valueType);
-				
-			}
-			
-			// Set it now:
-			globalVariable.SetValue(value);
-			
-			return globalVariable;
-			
-		}
-		
 		/// <summary>Read-only in ECMAScript 5.</summary>
 		public const double NaN=double.NaN;
 		/// <summary>Read-only in ECMAScript 5.</summary>
@@ -320,7 +230,7 @@ namespace Nitrassic.Library
 			if (radix2 < 0 || radix2 == 1 || radix2 > 36)
 				return double.NaN;
 
-			return NumberParser.ParseInt(input, radix2, engine.CompatibilityMode == CompatibilityMode.ECMAScript3);
+			return NumberParser.ParseInt(input, radix2, false);
 		}
 		
 		//	 PRIVATE IMPLEMENTATION METHODS

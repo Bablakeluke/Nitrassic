@@ -8,42 +8,42 @@ namespace Nitrassic.Library
 	[Serializable]
 	public class RangeError : Error{
 	
-		public RangeError(ScriptEngine engine,string message):base(engine,message){}
+		public RangeError(string message):base(message){}
 		
 	}
 	
 	[Serializable]
 	public class TypeError : Error{
 	
-		public TypeError(ScriptEngine engine,string message):base(engine,message){}
+		public TypeError(string message):base(message){}
 		
 	}
 	
 	[Serializable]
 	public class SyntaxError : Error{
 	
-		public SyntaxError(ScriptEngine engine,string message):base(engine,message){}
+		public SyntaxError(string message):base(message){}
 		
 	}
 	
 	[Serializable]
 	public class URIError : Error{
 	
-		public URIError(ScriptEngine engine,string message):base(engine,message){}
+		public URIError(string message):base(message){}
 		
 	}
 	
 	[Serializable]
 	public class EvalError : Error{
 	
-		public EvalError(ScriptEngine engine,string message):base(engine,message){}
+		public EvalError(string message):base(message){}
 		
 	}
 	
 	[Serializable]
 	public class ReferenceError : Error{
 		
-		public ReferenceError(ScriptEngine engine,string message):base(engine,message){}
+		public ReferenceError(string message):base(message){}
 		
 	}
 	
@@ -51,7 +51,7 @@ namespace Nitrassic.Library
 	/// Represents the base class of all the javascript errors.
 	/// </summary>
 	[Serializable]
-	public partial class Error : ObjectInstance
+	public partial class Error
 	{
 
 		//	 INITIALIZATION
@@ -65,8 +65,7 @@ namespace Nitrassic.Library
 		/// creating this property. </param>
 		/// <param name="message"> The initial value of the message property.  Pass <c>null</c> to
 		/// avoid creating this property. </param>
-		internal Error(ScriptEngine engine, string message)
-			: base(engine)
+		internal Error(string message)
 		{
 			Name=GetType().Name;
 			Message=message;
@@ -99,9 +98,9 @@ namespace Nitrassic.Library
 		/// <param name="path"> The path of the javascript source file that is currently executing. </param>
 		/// <param name="function"> The name of the currently executing function. </param>
 		/// <param name="line"> The line number of the statement that is currently executing. </param>
-		internal void SetStackTrace(string path, string function, int line, int depth)
+		internal void SetStackTrace(ScriptEngine engine,int depth)
 		{
-			Stack=Engine.FormatStackTrace(this.Name, this.Message, path, function, line, depth);
+			Stack=engine.FormatStackTrace(depth);
 		}
 
 
@@ -132,7 +131,27 @@ namespace Nitrassic.Library
 			if(message==null)
 				message="";
 			
-			return new Error(engine, message);
+			return new Error(message);
+		}
+		
+		/// <summary>
+		/// Creates a new derived error instance.
+		/// </summary>
+		/// <param name="message"> A description of the error. </param>
+		public static Error OnCall(ScriptEngine engine){
+			Error e=new Error("");
+			e.SetStackTrace(engine,2);
+			return e;
+		}
+		
+		/// <summary>
+		/// Creates a new derived error instance.
+		/// </summary>
+		/// <param name="message"> A description of the error. </param>
+		public static Error OnCall(ScriptEngine engine,string message){
+			Error e=new Error(message);
+			e.SetStackTrace(engine,2);
+			return e;
 		}
 		
 	}

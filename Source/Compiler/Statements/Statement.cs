@@ -7,13 +7,18 @@ namespace Nitrassic.Compiler
 	/// <summary>
 	/// Represents a javascript statement.
 	/// </summary>
-	internal abstract class Statement : AstNode
+	public abstract class Statement : AstNode
 	{
 		
 		public virtual bool DefaultBreakStatementBehaviour{
 			get{
 				return true;
 			}
+		}
+		
+		/// <summary>Sets the current statement root.</summary>
+		public virtual void SetRoot(OptimizationInfo optimizationInfo){
+			
 		}
 		
 		/// <summary>

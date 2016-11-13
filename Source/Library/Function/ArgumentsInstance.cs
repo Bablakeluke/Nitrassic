@@ -58,9 +58,9 @@ namespace Nitrassic.Library
 			}
 		}
 		
-		/// <summary>Used when enumerating the args.</summary>
+		/// <summary>Used when enumerating the arg values.</summary>
 		[JSProperties(Hidden=true)]
-		public IEnumerable<PropertyNameAndValue> Properties
+		public IEnumerable<object> PropertyValues
 		{
 			get
 			{
@@ -70,7 +70,25 @@ namespace Nitrassic.Library
 				{
 					object arrayElementValue = Arguments[i];
 					if (arrayElementValue != null)
-						yield return new PropertyNameAndValue(i.ToString(), arrayElementValue, PropertyAttributes.FullAccess);
+						yield return arrayElementValue;
+				}
+				
+			}
+		}
+		
+		/// <summary>Used when enumerating the args.</summary>
+		[JSProperties(Hidden=true)]
+		public IEnumerable<string> Properties
+		{
+			get
+			{
+				
+				// Enumerate dense array indices.
+				for (uint i = 0; i < Arguments.Length; i++)
+				{
+					object arrayElementValue = Arguments[i];
+					if (arrayElementValue != null)
+						yield return i.ToString();
 				}
 				
 			}

@@ -80,14 +80,7 @@ namespace Nitrassic.Library
 		{
 			get { return (this.Attributes & PropertyAttributes.IsAccessorProperty) != 0; }
 		}
-
-		/// <summary>
-		/// Gets a value that indicates whether the property is the magic length property.
-		/// </summary>
-		public bool IsLength
-		{
-			get { return (this.Attributes & PropertyAttributes.IsLengthProperty) != 0; }
-		}
+		
 	}
 
 }

@@ -6,14 +6,14 @@ namespace Nitrassic.Compiler
 	/// <summary>
 	/// Represents a label in IL code.
 	/// </summary>
-	internal abstract class ILLabel
+	public abstract class ILLabel
 	{
 	}
 	
 	/// <summary>
 	/// Represents a label in IL code.
 	/// </summary>
-	internal class ReflectionEmitILLabel : ILLabel
+	public class ReflectionEmitILLabel : ILLabel
 	{
 		/// <summary>
 		/// Creates a new label instance.

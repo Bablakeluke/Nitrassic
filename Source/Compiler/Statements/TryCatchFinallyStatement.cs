@@ -45,6 +45,9 @@ namespace Nitrassic.Compiler
 		public override void GenerateCode(ILGenerator generator, OptimizationInfo optimizationInfo)
 		{
 			
+			// Get the previous root - we'll be changing it:
+			Expression prevRoot=optimizationInfo.RootExpression;
+			
 			// Unlike in .NET, in javascript there are no restrictions on what can appear inside
 			// try, catch and finally blocks.  The one restriction which causes problems is the
 			// inability to jump out of .NET finally blocks.  This is required when break, continue
@@ -63,23 +66,29 @@ namespace Nitrassic.Compiler
 			// Begin the exception block.
 			generator.BeginExceptionBlock();
 
-			// Generate code for the try block.
-			this.TryBlock.GenerateCode(generator, optimizationInfo);
+			// Generate code for the try block. It's now the root.
+			TryBlock.SetRoot(optimizationInfo);
+			TryBlock.GenerateCode(generator, optimizationInfo);
 
 			// Generate code for the catch block.
 			if (this.CatchBlock != null)
 			{
 				// Begin a catch block.  The exception is on the top of the stack.
-				generator.BeginCatchBlock(typeof(JavaScriptException));
-				
-				// Store the error object in the variable provided.
-				generator.Call(ReflectionHelpers.JavaScriptException_ErrorObject);
+				generator.BeginCatchBlock(typeof(Exception));
 				
 				var catchVariable = new NameExpression(this.CatchScope, this.CatchVariableName);
-				catchVariable.GenerateSet(generator, optimizationInfo, typeof(object), delegate(){}, false);
 				
-				// Emit code for the statements within the catch block.
-				this.CatchBlock.GenerateCode(generator, optimizationInfo);
+				catchVariable.ApplyType(optimizationInfo,typeof(Exception));
+				
+				catchVariable.GenerateSet(generator, optimizationInfo,false, typeof(Exception), delegate(bool two){
+					
+					// Note that we always do nothing here. The value is already on the stack.
+					
+				}, false);
+				
+				// Emit code for the statements within the catch block. It's now the root.
+				CatchBlock.SetRoot(optimizationInfo);
+				CatchBlock.GenerateCode(generator, optimizationInfo);
 				
 			}
 
@@ -104,8 +113,9 @@ namespace Nitrassic.Compiler
 						// Record any branches that are made within the finally code.
 						branches.Add(label);
 					};
-
-				// Emit code for the finally block.
+				
+				// Emit code for the finally block. It's now the root.
+				FinallyBlock.SetRoot(optimizationInfo);
 				this.FinallyBlock.GenerateCode(generator, optimizationInfo);
 
 				// End the main exception block.
@@ -144,6 +154,9 @@ namespace Nitrassic.Compiler
 			
 			// Reset the InsideTryCatchOrFinally flag.
 			optimizationInfo.InsideTryCatchOrFinally = previousInsideTryCatchOrFinally;
+			
+			// Restore root:
+			optimizationInfo.RootExpression=prevRoot;
 			
 		}
 

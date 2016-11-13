@@ -24,6 +24,7 @@ namespace Nitrassic.Compiler
 		{
 			
 			// Emit code to throw the given value.
+			EmitHelpers.LoadEngine(generator);
 			this.Value.GenerateCode(generator, optimizationInfo);
 			EmitConversion.ToAny(generator, this.Value.GetResultType(optimizationInfo));
 			generator.LoadInt32(1);

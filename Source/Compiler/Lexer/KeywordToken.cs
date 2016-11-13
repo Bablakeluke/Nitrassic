@@ -61,7 +61,7 @@ namespace Nitrassic.Compiler
 		public readonly static KeywordToken Extends = new KeywordToken("extends");
 		public readonly static KeywordToken Import = new KeywordToken("import");
 		public readonly static KeywordToken Super = new KeywordToken("super");
-
+		
 		// Strict-mode reserved words.
 		public readonly static KeywordToken Implements = new KeywordToken("implements");
 		public readonly static KeywordToken Interface = new KeywordToken("interface");
@@ -109,6 +109,7 @@ namespace Nitrassic.Compiler
 			If,
 			In,
 			InstanceOf,
+			Let,
 			New,
 			Return,
 			Switch,
@@ -141,7 +142,6 @@ namespace Nitrassic.Compiler
 		{
 			Implements,
 			Interface,
-			Let,
 			Package,
 			Private,
 			Protected,
@@ -149,65 +149,24 @@ namespace Nitrassic.Compiler
 			Static,
 			Yield,
 		};
-
-		// Reserved words (in ECMAScript 3).
-		private readonly static Token[] ecmaScript3ReservedWords = new Token[]
-		{
-			Abstract,
-			Boolean,
-			Byte,
-			Char,
-			Double,
-			Final,
-			Float,
-			Goto,
-			Implements,
-			Int,
-			Interface,
-			Long,
-			Native,
-			Package,
-			Private,
-			Protected,
-			Public,
-			Short,
-			Static,
-			Synchronized,
-			Throws,
-			Transient,
-			Volatile,
-		};
-
+		
 		// The actual lookup tables are the result of combining two of the lists above.
 		private static Dictionary<string, Token> ecmaScript5LookupTable;
-		private static Dictionary<string, Token> ecmaScript3LookupTable;
 		private static Dictionary<string, Token> strictModeLookupTable;
 
 		/// <summary>
 		/// Creates a token from the given string.
 		/// </summary>
 		/// <param name="text"> The text. </param>
-		/// <param name="compatibilityMode"> The script engine compatibility mode. </param>
 		/// <param name="strictMode"> <c>true</c> if the lexer is operating in strict mode;
 		/// <c>false</c> otherwise. </param>
 		/// <returns> The token corresponding to the given string, or <c>null</c> if the string
 		/// does not represent a valid token. </returns>
-		public static Token FromString(string text, CompatibilityMode compatibilityMode, bool strictMode)
+		public static Token FromString(string text, bool strictMode)
 		{
 			// Determine the lookup table to use.
 			Dictionary<string, Token> lookupTable;
-			if (compatibilityMode == CompatibilityMode.ECMAScript3)
-			{
-				// Initialize the ECMAScript 3 lookup table, if it hasn't already been intialized.
-				if (ecmaScript3LookupTable == null)
-				{
-					lookupTable = InitializeLookupTable(ecmaScript3ReservedWords);
-					System.Threading.Thread.MemoryBarrier();
-					ecmaScript3LookupTable = lookupTable;
-				}
-				lookupTable = ecmaScript3LookupTable;
-			}
-			else if (strictMode == false)
+			if (!strictMode)
 			{
 				// Initialize the ECMAScript 5 lookup table, if it hasn't already been intialized.
 				if (ecmaScript5LookupTable == null)
@@ -236,7 +195,7 @@ namespace Nitrassic.Compiler
 				return result;
 
 			// If the text wasn't found, it is an identifier instead.
-			return new IdentifierToken(text);
+			return IdentifierToken.Create(text);
 		}
 
 		/// <summary>
@@ -324,15 +283,27 @@ namespace Nitrassic.Compiler
 		public override Statement ParseNoNewContext(Parser parser)
 		{
 			
-			// Parse the function declaration.
-			var expression = parser.ParseFunction(Parser.FunctionType.Declaration, parser.initialScope);
+			// Consume the function keyword.
+            parser.Expect(KeywordToken.Function);
 
+            // Read the function name.
+            var functionName = parser.ExpectIdentifier();
+            parser.ValidateVariableName(functionName);
+
+            // Parse the function declaration.
+            var expression = parser.ParseFunction(FunctionDeclarationType.Declaration, parser.initialScope, functionName);
+			
 			// Add the function to the top-level scope.
-			parser.initialScope.DeclareVariable(expression.FunctionName, expression.GetResultType(parser.OptimizationInfo), expression);
-
-			// Function declarations do nothing at the point of declaration - everything happens
-			// at the top of the function/global code.
-			return parser.Labels(new EmptyStatement());
+			Type vType=expression.GetResultType(parser.OptimizationInfo);
+			
+			Variable variable=parser.initialScope.AddVariable(expression.FunctionName, vType, expression);
+			
+			// Try setting a constant value:
+			variable.TrySetConstant(expression.Context);
+			
+            // Function declarations do nothing at the point of declaration - everything happens
+            // at the top of the function/global code.
+            return parser.Labels(new EmptyStatement());
 			
 		}
 		
@@ -708,7 +679,8 @@ namespace Nitrassic.Compiler
 			parser.Expect(PunctuatorToken.RightParenthesis);
 
 			// Create a new scope and assign variables within the with statement to the scope.
-			result.Scope = ObjectScope.CreateWithScope(parser.currentLetScope, objectEnvironment);
+			result.Scope = ObjectScope.CreateWithScope(parser.currentLetScope, objectEnvironment,parser.OptimizationInfo);
+			
 			using (parser.CreateScopeContext(result.Scope, result.Scope))
 			{
 				// Read the body of the with statement.
@@ -794,7 +766,7 @@ namespace Nitrassic.Compiler
 				parser.ValidateVariableName(declaration.VariableName);
 
 				// Add the variable to the current function's list of local variables.
-				parser.currentVarScope.DeclareVariable(declaration.VariableName,null,
+				parser.currentVarScope.AddVariable(declaration.VariableName,null,
 					parser.context == CodeContext.Function ? null : new LiteralExpression(Undefined.Value));
 
 				// The next token is either an equals sign (=), a semi-colon or a comma.
@@ -829,6 +801,17 @@ namespace Nitrassic.Compiler
 		
 	}
 	
+	/// <summary>
+	/// When parsing a for statement, this is used to keep track of what type it is.
+	/// </summary>
+	internal enum ForStatementType
+	{
+		Unknown,
+		For,
+		ForIn,
+		ForOf,
+	}
+	
 	internal class ForToken : KeywordToken
 	{
 		
@@ -847,21 +830,26 @@ namespace Nitrassic.Compiler
 			// The initialization statement.
 			Statement initializationStatement = null;
 
-			// The for-in expression needs a variable to assign to.  Is null for a regular for statement.
-			IReferenceExpression forInReference = null;
+            // The type of for statement.
+            ForStatementType type = ForStatementType.Unknown;
 			
-			if (parser.nextToken == KeywordToken.Var)
+			// The for-in and for-of expressions need a variable to assign to.  Is null for a regular for statement.
+			IReferenceExpression forInOfReference = null;
+			
+			if (parser.nextToken == KeywordToken.Var || parser.nextToken==KeywordToken.Let || parser.nextToken==KeywordToken.Const)
 			{
-				// Read past the var token.
-				parser.Expect(KeywordToken.Var);
-
-				// There can be multiple initializers (but not for for-in statements).
-				var varStatement = new VarStatement(parser.currentVarScope);
-				initializationStatement = parser.Labels(varStatement);
 				
-				// Only a simple variable name is allowed for for-in statements.
-				bool cannotBeForIn = false;
-
+				bool isVar=(parser.nextToken == KeywordToken.Var);
+				
+				// Read past the var/let/const token.
+				parser.Expect(parser.nextToken);
+				
+				Scope scope=isVar?parser.currentVarScope : parser.currentLetScope;
+				
+				// There can be multiple initializers (but not for for-in statements).
+				var varLetConstStatement = new VarStatement(scope);
+				initializationStatement = parser.Labels(varLetConstStatement);
+				
 				while (true)
 				{
 					var declaration = new VariableDeclaration();
@@ -871,7 +859,7 @@ namespace Nitrassic.Compiler
 					parser.ValidateVariableName(declaration.VariableName);
 
 					// Add the variable to the current function's list of local variables.
-					parser.currentVarScope.DeclareVariable(declaration.VariableName,null,
+					parser.currentVarScope.AddVariable(declaration.VariableName,null,
 						parser.context == CodeContext.Function ? null : new LiteralExpression(Undefined.Value));
 
 					// The next token is either an equals sign (=), a semi-colon, a comma, or the "in" keyword.
@@ -883,32 +871,40 @@ namespace Nitrassic.Compiler
 						// Read the setter expression.
 						declaration.InitExpression = parser.ParseExpression(PunctuatorToken.Semicolon, PunctuatorToken.Comma);
 						
-						// This is a regular for statement.
-						cannotBeForIn = true;
+                        // This must be a regular for statement.
+                        type = ForStatementType.For;
 					}
 
 					// Add the declaration to the initialization statement.
-					varStatement.Declarations.Add(declaration);
-
+					varLetConstStatement.Declarations.Add(declaration);
+					
 					if (parser.nextToken == PunctuatorToken.Semicolon)
 					{
 						// This is a regular for statement.
 						break;
 					}
-					else if (parser.nextToken == KeywordToken.In && cannotBeForIn == false)
-					{
-						// This is a for-in statement.
-						forInReference = new NameExpression(parser.currentVarScope, declaration.VariableName);
-						break;
-					}
+					else if (parser.nextToken == KeywordToken.In && type == ForStatementType.Unknown)
+                    {
+                        // This is a for-in statement.
+                        forInOfReference = new NameExpression(scope, declaration.VariableName);
+                        type = ForStatementType.ForIn;
+                        break;
+                    }
+					else if (parser.nextToken == IdentifierToken.Of && type == ForStatementType.Unknown)
+                    {
+                        // This is a for-of statement.
+                        forInOfReference = new NameExpression(scope, declaration.VariableName);
+                        type = ForStatementType.ForOf;
+                        break;
+                    }
 					else if (parser.nextToken != PunctuatorToken.Comma)
 						throw new JavaScriptException(parser.engine, "SyntaxError", string.Format("Unexpected token {0}", Token.ToText(parser.nextToken)), parser.LineNumber, parser.SourcePath);
 
 					// Read past the comma token.
 					parser.Expect(PunctuatorToken.Comma);
 					
-					// Multiple initializers are not allowed in for-in statements.
-					cannotBeForIn = true;
+                    // Multiple initializers are not allowed in for-in statements.
+                    type = ForStatementType.For;
 				}
 				
 			}
@@ -919,7 +915,7 @@ namespace Nitrassic.Compiler
 				if (parser.nextToken != PunctuatorToken.Semicolon)
 				{
 					// Parse an expression.
-					var initializationExpression = parser.ParseExpression(PunctuatorToken.Semicolon, KeywordToken.In);
+					var initializationExpression = parser.ParseExpression(PunctuatorToken.Semicolon, KeywordToken.In, IdentifierToken.Of);
 
 					// Record debug info for the expression.
 					initializationStatement = new ExpressionStatement(initializationExpression);
@@ -928,20 +924,28 @@ namespace Nitrassic.Compiler
 					{
 						// This is a for-in statement.
 						if ((initializationExpression is IReferenceExpression) == false)
-							throw new JavaScriptException(parser.engine, "ReferenceError", "Invalid left-hand side in for-in", parser.LineNumber, parser.SourcePath);
-						forInReference = (IReferenceExpression)initializationExpression;
+							throw new JavaScriptException(parser.engine, "SyntaxError", "Invalid left-hand side in for-in", parser.LineNumber, parser.SourcePath);
+						forInOfReference = (IReferenceExpression)initializationExpression;
 					}
+					else if (parser.nextToken == IdentifierToken.Of)
+                    {
+                        // This is a for-of statement.
+                        if ((initializationExpression is IReferenceExpression) == false)
+                            throw new JavaScriptException(parser.engine, "SyntaxError", "Invalid left-hand side in for-of", parser.LineNumber, parser.SourcePath);
+                        forInOfReference = (IReferenceExpression)initializationExpression;
+                        type = ForStatementType.ForOf;
+                    }
 				}
 			}
 
-			if (forInReference != null)
+			if (type == ForStatementType.ForIn)
 			{
 				// for (x in y)
 				// for (var x in y)
 				var result = new ForInStatement();
 				var labelled = parser.Labels(result);
 				
-				result.Variable = forInReference;
+				result.Variable = forInOfReference;
 				
 				// Consume the "in".
 				parser.Expect(KeywordToken.In);
@@ -957,6 +961,29 @@ namespace Nitrassic.Compiler
 
 				return labelled;
 			}
+			else if (type == ForStatementType.ForOf)
+            {
+                // for (x of y)
+                // for (var x of y)
+                var result = new ForOfStatement();
+				var labelled = parser.Labels(result);
+				
+                result.Variable = forInOfReference;
+                
+                // Consume the "of".
+                parser.Expect(IdentifierToken.Of);
+
+                // Parse the right-hand-side expression.
+                result.TargetObject = parser.ParseExpression(PunctuatorToken.RightParenthesis, PunctuatorToken.Comma); // Comma is not allowed.
+                
+                // Read the right parenthesis.
+                parser.Expect(PunctuatorToken.RightParenthesis);
+
+                // Read the statements that will be executed in the loop body.
+                result.Body = parser.ParseStatement();
+				
+                return labelled;
+            }
 			else
 			{
 				var result = new ForStatement();

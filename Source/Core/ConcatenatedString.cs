@@ -26,7 +26,8 @@ namespace Nitrassic
 		public ConcatenatedString(string initialValue)
 		{
 			if (initialValue == null)
-				throw new ArgumentNullException("initialValue");
+				initialValue="null";
+			
 			this.builder = new StringBuilder(initialValue);
 			this.length = initialValue.Length;
 			this.cachedString = initialValue;
@@ -40,9 +41,10 @@ namespace Nitrassic
 		public ConcatenatedString(string left, string right)
 		{
 			if (left == null)
-				throw new ArgumentNullException("left");
+				left="null";
 			if (right == null)
-				throw new ArgumentNullException("right");
+				right="null";
+			
 			this.builder = new StringBuilder(left, left.Length + right.Length);
 			this.builder.Append(right);
 			this.length = left.Length + right.Length;

@@ -26,6 +26,13 @@ namespace Nitrassic.Library
 			
 		}
 		
+		public Uint32Array(double length):base(TypedArrayStyle.Uint32Array, (int)length){
+			
+			// Create the fast buffer:
+			buffer=new uint[Length];
+			
+		}
+		
 		public Uint32Array(TypedArray array):base(TypedArrayStyle.Uint32Array, array)
 		{
 			
@@ -47,6 +54,8 @@ namespace Nitrassic.Library
 			Add(iterableObj);
 			
 		}
+		
+		public Uint32Array(ArrayBuffer buff):this(buff,0,0){}
 		
 		public Uint32Array(ArrayBuffer buff,int byteOffset,int length):base(TypedArrayStyle.Uint32Array, length==0?buff.ByteLength:length)
 		{

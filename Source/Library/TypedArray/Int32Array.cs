@@ -26,6 +26,13 @@ namespace Nitrassic.Library
 			
 		}
 		
+		public Int32Array(double length):base(TypedArrayStyle.Int32Array, (int)length){
+			
+			// Create the fast buffer:
+			buffer=new int[Length];
+			
+		}
+		
 		public Int32Array(TypedArray array):base(TypedArrayStyle.Int32Array, array)
 		{
 			
@@ -47,6 +54,8 @@ namespace Nitrassic.Library
 			Add(iterableObj);
 			
 		}
+		
+		public Int32Array(ArrayBuffer buff):this(buff,0,0){}
 		
 		public Int32Array(ArrayBuffer buff,int byteOffset,int length):base(TypedArrayStyle.Int32Array, length==0?buff.ByteLength:length)
 		{
@@ -97,6 +106,10 @@ namespace Nitrassic.Library
 			buffer[index]=(int)value;
 		}
 		
+		#warning can't seem to feature test for virtual methods
+		// -> Remove this and assert(!!(new Int32Array(1)).set,"This will fail!")
+		public void Set(){}
+		
 		/// <summary>
 		/// Gets or sets the given entry in the array.
 		/// </summary>
@@ -110,14 +123,47 @@ namespace Nitrassic.Library
 				return buffer[index];
 			}
 			set{
+				
 				if(buffer==null)
 				{
 					// Use the _Buffer instead:
 					LittleConverter.GetBytes(value,_Buffer.buffer,(index * 4) + ByteOffset);
 					return;
 				}
+				
 				buffer[index]=value;
 			}
+		}
+		
+		/*
+		public Int32Array Subarray(){
+			return Subarray(0,int.MaxValue);
+		}
+		
+		public Int32Array Subarray(int begin){
+			return Subarray(begin,int.MaxValue);
+		}
+		*/
+		
+        /// <summary>
+        /// Returns a new typed array on the same ArrayBuffer store and with the same element types
+        /// as for this TypedArray object. The begin offset is inclusive and the end offset is
+        /// exclusive.
+        /// </summary>
+        /// <param name="begin"> Element to begin at. The offset is inclusive. </param>
+        /// <param name="end"> Element to end at. The offset is exclusive. If not specified, all
+        /// elements from the one specified by begin to the end of the array are included in the
+        /// new view. </param>
+        /// <returns> A new typed array that shares the same ArrayBuffer store. </returns>
+		public Int32Array Subarray(int begin, int end){
+			
+			// Constrain the input parameters to valid values.
+			begin = begin < 0 ? Math.Max(this.Length + begin, 0) : Math.Min(begin, this.Length);
+			end = end < 0 ? Math.Max(this.Length + end, 0) : Math.Min(end, this.Length);
+			int newLength = Math.Max(end - begin, 0);
+			
+			// Create a new typed array that uses the same ArrayBuffer.
+			return new Int32Array(this.Buffer, this.ByteOffset + begin * BYTES_PER_ELEMENT, newLength);
 		}
 		
 		/// <summary>Creates a Int32Array from the given iterable object.</summary>

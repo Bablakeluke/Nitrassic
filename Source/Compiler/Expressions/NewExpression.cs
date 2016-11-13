@@ -33,7 +33,29 @@ namespace Nitrassic.Compiler
 					int.MaxValue : Operator.New.Precedence;
 			}
 		}
-
+		
+		internal override void ResolveVariables(OptimizationInfo optimizationInfo){
+			
+			// Mark as a ctr type:
+			bool previous=optimizationInfo.IsConstructCall;
+			optimizationInfo.IsConstructCall=true;
+			
+			// Resolve kids now:
+			base.ResolveVariables(optimizationInfo);
+			
+			// Attempt a conversion next:
+			
+			// Get as a call expr:
+			FunctionCallExpression function = GetRawOperand(0) as FunctionCallExpression;
+			
+			if (function==null){
+				function=AttemptConversion(optimizationInfo);
+			}
+			
+			optimizationInfo.IsConstructCall=previous;
+			
+		}
+		
 		/// <summary>
 		/// Gets the type that results from evaluating this expression.
 		/// </summary>
@@ -46,17 +68,87 @@ namespace Nitrassic.Compiler
 			// Get as a call expr:
 			FunctionCallExpression function = operand as FunctionCallExpression;
 			
-			if (function!=null)
-			{
-				
-				// Set IsConstructCall so the resolve runs correctly:
+			if(function!=null){
+				// Set IsConstructCall so a potential resolve runs correctly:
 				optimizationInfo.IsConstructCall=true;
+			}
+			
+			Type fType=operand.GetResultType(optimizationInfo);
+			
+			if(function!=null){
+				// Clear ICC:
+				optimizationInfo.IsConstructCall=false;
+			}
+			
+			if(function.IsUserDefined){
+				// It's user defined which means the return type is actually the instance type:
+				fType=function.InstanceType(optimizationInfo.Engine);
+			}
+			
+			return fType;
+			
+		}
+		
+		private FunctionCallExpression AttemptConversion(OptimizationInfo optimizationInfo){
+			
+			var operand = this.GetRawOperand(0);
+			
+			// Try a NameExpression which refs a constructor instead.
+			NameExpression nameExpr=operand as NameExpression;
+			
+			if(nameExpr==null){
+				
+				return null;
 				
 			}
 			
-			return operand.GetResultType(optimizationInfo);
+			// Get the type:
+			Type type=nameExpr.Variable.Type;
+			
+			// Get the prototype;
+			Library.Prototype proto=optimizationInfo.Engine.Prototypes.Get(type);
+			
+			// Get ctr object, which may be a set:
+			object onCtr=proto.OnConstruct;
+			
+			if(onCtr==null){
+				
+				throw new Exception("Didn't recognise that as a suitable constructable object");
+				
+			}
+			
+			// Ok! It could be a set - let's check:
+			MethodGroup group=onCtr as MethodGroup;
+			
+			System.Reflection.MethodBase resolvedMethod=null;
+	
+			if(group==null)
+			{
+				// It must be MethodBase - it can't be anything else:
+				resolvedMethod=onCtr as System.Reflection.MethodBase;
+			}
+			else
+			{
+				// We have a group! Find the overload that we're after (no args were passed here):
+				resolvedMethod=group.Match(null);
+			}
+			
+			// Create a FunctionCallExpr.
+			FunctionCallExpression function=new FunctionCallExpression(Operator.FunctionCall);
+			
+			// Apply resolved:
+			function.ResolvedMethod=resolvedMethod;
+			
+			// Apply target:
+			function.Push(operand);
+			
+			// Overwrite local operand:
+			SetRawOperand(0,function);
+			
+			return function;
+			
 		}
-
+		
 		/// <summary>
 		/// Generates CIL for the expression.
 		/// </summary>
@@ -66,7 +158,7 @@ namespace Nitrassic.Compiler
 		{
 			// Note: we use GetRawOperand() so that grouping operators are not ignored.
 			var operand = this.GetRawOperand(0);
-
+			
 			// There is only one operand, and it can be either a reference or a function call.
 			// We need to split the operand into a function and some arguments.
 			// If the operand is a reference, it is equivalent to a function call with no arguments.
@@ -74,85 +166,35 @@ namespace Nitrassic.Compiler
 			// Get as a call expr:
 			FunctionCallExpression function = operand as FunctionCallExpression;
 			
-			if (function!=null)
-			{
-				
-				if(function.ResolvedMethod==null)
-				{
-					// Set IsConstructCall:
-					optimizationInfo.IsConstructCall=true;
-					
-					// Try and resolve it:
-					function.Resolve(optimizationInfo);
-				}
+			System.Reflection.MethodBase resolvedMethod=null;
+	
+			if(function!=null){
 				
 				// Did it resolve?
-				if(function.ResolvedMethod!=null)
-				{
-					// Awesome, we can pre-emit the construct call!
-					
-					// Emit the ordinary call:
-					function.GenerateCode(generator,optimizationInfo);
-					return;
-					
-				}
+				resolvedMethod=function.ResolvedMethod;
 				
-				// Emit the function instance first.
-				function.GenerateCode(generator, optimizationInfo);
-				EmitConversion.ToAny(generator, function.GetResultType(optimizationInfo));
-			}
-			else
-			{
-				// Emit the function instance first.
-				operand.GenerateCode(generator, optimizationInfo);
-				EmitConversion.ToAny(generator, operand.GetResultType(optimizationInfo));
 			}
 			
-			/*
-			// Check the object really is a function - if not, throw an exception.
-			generator.IsInstance(typeof(Library.FunctionInstance));
-			generator.Duplicate();
-			var endOfTypeCheck = generator.CreateLabel();
-			generator.BranchIfNotNull(endOfTypeCheck);
-
-			// Throw an nicely formatted exception.
-			var targetValue = generator.CreateTemporaryVariable(typeof(object));
-			generator.StoreVariable(targetValue);
-			EmitHelpers.LoadEngine(generator);
-			generator.LoadString("TypeError");
-			generator.LoadString("The new operator requires a function, found a '{0}' instead");
-			generator.LoadInt32(1);
-			generator.NewArray(typeof(object));
-			generator.Duplicate();
-			generator.LoadInt32(0);
-			generator.LoadVariable(targetValue);
-			generator.Call(ReflectionHelpers.TypeUtilities_TypeOf);
-			generator.StoreArrayElement(typeof(object));
-			generator.Call(ReflectionHelpers.String_Format);
-			generator.LoadInt32(1);
-			generator.LoadStringOrNull(optimizationInfo.Source.Path);
-			generator.LoadStringOrNull(optimizationInfo.FunctionName);
-			generator.NewObject(ReflectionHelpers.JavaScriptException_Constructor_Error);
-			generator.Throw();
-			generator.DefineLabelPosition(endOfTypeCheck);
-			generator.ReleaseTemporaryVariable(targetValue);
-
-			if (operand is FunctionCallExpression)
+			if(resolvedMethod!=null)
 			{
-				// Emit an array containing the function arguments.
-				((FunctionCallExpression)operand).GenerateArgumentsArray(generator, optimizationInfo);
+				// Awesome, we can pre-emit the construct call!
+				
+				// Set is constructor (immediately cleared by CallExpr's GenerateCode method):
+				optimizationInfo.IsConstructCall=true;
+				
+				// Emit an ordinary call:
+				function.GenerateCode(generator,optimizationInfo);
+				return;
+				
 			}
-			else
-			{
-				// Emit an empty array.
-				generator.LoadInt32(0);
-				generator.NewArray(typeof(object));
-			}
-
-			// Call FunctionInstance.ConstructLateBound(argumentValues)
-			generator.Call(ReflectionHelpers.FunctionInstance_ConstructLateBound);
-			*/
+			
+			#warning incorrect.
+			// Emit the function instance first.
+			function.GenerateCode(generator, optimizationInfo);
+			EmitConversion.ToAny(generator, function.GetResultType(optimizationInfo));
+			
 		}
+		
 	}
 
 }

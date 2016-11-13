@@ -21,13 +21,13 @@ namespace Nitrassic
 		/// <param name="errorObject"> The javascript object that was thrown. </param>
 		/// <param name="lineNumber"> The line number in the source file the error occurred on. </param>
 		/// <param name="sourcePath"> The path or URL of the source file.  Can be <c>null</c>. </param>
-		public JavaScriptException(object errorObject, int lineNumber, string sourcePath)
+		public JavaScriptException(ScriptEngine engine,object errorObject, int lineNumber, string sourcePath)
 			: base(TypeConverter.ToString(errorObject))
 		{
 			this.ErrorObject = errorObject;
 			this.LineNumber = lineNumber;
 			this.SourcePath = sourcePath;
-			this.PopulateStackTrace(0);
+			this.PopulateStackTrace(engine,0);
 		}
 
 		/// <summary>
@@ -37,14 +37,14 @@ namespace Nitrassic
 		/// <param name="lineNumber"> The line number in the source file the error occurred on. </param>
 		/// <param name="sourcePath"> The path or URL of the source file.  Can be <c>null</c>. </param>
 		/// <param name="functionName"> The name of the function.  Can be <c>null</c>. </param>
-		public JavaScriptException(object errorObject, int lineNumber, string sourcePath, string functionName)
+		public JavaScriptException(ScriptEngine engine,object errorObject, int lineNumber, string sourcePath, string functionName)
 			: base(TypeConverter.ToString(errorObject))
 		{
 			this.ErrorObject = errorObject;
 			this.LineNumber = lineNumber;
 			this.SourcePath = sourcePath;
 			this.FunctionName = functionName;
-			this.PopulateStackTrace(0);
+			this.PopulateStackTrace(engine,0);
 		}
 
 		/// <summary>
@@ -56,6 +56,19 @@ namespace Nitrassic
 		public JavaScriptException(ScriptEngine engine, string name, string message)
 			: this(engine, name, message, 0)
 			{}
+		
+		/// <summary>
+		/// Creates a new JavaScriptException instance.
+		/// </summary>
+		/// <param name="info"> The current optimization info.</param>
+		/// <param name="name"> The name of the error, e.g "RangeError". </param>
+		/// <param name="message"> A description of the error. </param>
+		public JavaScriptException(Compiler.OptimizationInfo info, string name, string message)
+			: base(string.Format("{0}: {1}", name, message))
+		{
+			this.ErrorObject = CreateError(info.Engine, name, message);
+			this.PopulateStackTrace(info.Engine,0);
+		}
 
 		/// <summary>
 		/// Creates a new JavaScriptException instance.
@@ -67,7 +80,7 @@ namespace Nitrassic
 			: base(string.Format("{0}: {1}", name, message))
 		{
 			this.ErrorObject = CreateError(engine, name, message);
-			this.PopulateStackTrace(depth);
+			this.PopulateStackTrace(engine,depth);
 		}
 
 		/// <summary>
@@ -82,7 +95,7 @@ namespace Nitrassic
 			: base(string.Format("{0}: {1}", name, message), innerException)
 		{
 			this.ErrorObject = CreateError(engine, name, message);
-			this.PopulateStackTrace(0);
+			this.PopulateStackTrace(engine,0);
 		}
 
 		/// <summary>
@@ -99,7 +112,7 @@ namespace Nitrassic
 			this.ErrorObject = CreateError(engine, name, message);
 			this.LineNumber = lineNumber;
 			this.SourcePath = sourcePath;
-			this.PopulateStackTrace(0);
+			this.PopulateStackTrace(engine,0);
 		}
 
 		/// <summary>
@@ -118,7 +131,7 @@ namespace Nitrassic
 			this.LineNumber = lineNumber;
 			this.SourcePath = sourcePath;
 			this.FunctionName = functionName;
-			this.PopulateStackTrace(0);
+			this.PopulateStackTrace(engine,0);
 		}
 
 
@@ -229,7 +242,7 @@ namespace Nitrassic
 				throw new ArgumentNullException("engine");
 
 			// Get the constructor corresponding to the error name.
-			System.Reflection.MethodBase constructor;
+			Library.Prototype constructor;
 			if (name == "Error")
 				constructor = engine.Prototypes.Error;
 			else if (name == "RangeError")
@@ -246,21 +259,21 @@ namespace Nitrassic
 				constructor = engine.Prototypes.ReferenceError;
 			else
 				throw new ArgumentException(string.Format("Unrecognised error type '{0}'.", name), "name");
-
+			
 			// Create an error instance.
-			return (Library.Error)constructor.Invoke(null,new object[]{message});
+			return (Library.Error)constructor.ConstructInstance(new object[]{message});
 		}
 
 		/// <summary>
 		/// Populates the error object stack trace, if the error object is an Error.
 		/// </summary>
-		internal void PopulateStackTrace(int depth)
+		internal void PopulateStackTrace(ScriptEngine engine,int depth)
 		{
 			// Ensure the error object is an Error or derived instance.
 			var errorObject = this.ErrorObject as Library.Error;
 			if (errorObject == null)
 				return;
-			errorObject.SetStackTrace(this.SourcePath, this.FunctionName, this.LineNumber, depth+2);
+			errorObject.SetStackTrace(engine, depth+2);
 		}
 	}
 }

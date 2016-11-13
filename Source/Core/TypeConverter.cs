@@ -74,21 +74,80 @@ namespace Nitrassic
 				return false;
 			if (value == Undefined.Value)
 				return false;
-			if (value is bool)
+			
+			// Get the type:
+			Type valuesType=value.GetType();
+			
+			if (valuesType==typeof(bool))
 				return (bool)value;
-			if (value is int)
+			if (valuesType==typeof(int))
 				return ((int)value) != 0;
-			if (value is uint)
+			if (valuesType==typeof(uint))
 				return ((uint)value) != 0;
-			if (value is double)
-				return ((double)value) != 0 && double.IsNaN((double)value) == false;
-			if (value is string)
+			if (valuesType==typeof(short))
+				return ((short)value) != 0;
+			if (valuesType==typeof(ushort))
+				return ((ushort)value) != 0;
+			if (valuesType==typeof(byte))
+				return ((byte)value) != 0;
+			if (valuesType==typeof(sbyte))
+				return ((sbyte)value) != 0;
+				
+			if (valuesType==typeof(double)){
+				double dbl=((double)value);
+				return dbl != 0 && double.IsNaN(dbl) == false;
+			}
+			
+			if (valuesType==typeof(float)){
+				float flt=((float)value);
+				return flt != 0 && float.IsNaN(flt) == false;
+			}
+			
+			if (valuesType==typeof(string))
 				return ((string)value).Length > 0;
-			if (value is ConcatenatedString)
+			if (valuesType==typeof(ConcatenatedString))
 				return ((ConcatenatedString)value).Length > 0;
-			if (value is ObjectInstance)
-				return true;
-			throw new ArgumentException(string.Format("Cannot convert object of type '{0}' to a boolean.", value.GetType()), "value");
+			
+			// Not null so it's some other object; this is fine:
+			return true;
+		}
+		
+		/// <summary>Gets the number of bytes of accuracy for a numeric type. 0 if it's not numeric.</summary>
+		private static int Accuracy(Type a){
+			
+			if (a==typeof(long) || a==typeof(ulong))
+				return 8;
+				
+			if (a==typeof(int) || a==typeof(uint))
+				return 4;
+				
+			if (a==typeof(short) || a==typeof(ushort))
+				return 2;
+				
+			if (a==typeof(sbyte) || a==typeof(byte))
+				return 1;
+			
+			return 0;
+			
+		}
+		
+		/// <summary>Gets the most accurate integer type out of the given two.</summary>
+		/// <returns>Null if one or both are not integer types.</returns>
+		public static Type MostAccurateInteger(Type a,Type b){
+			
+			int accA=Accuracy(a);
+			int accB=Accuracy(b);
+			
+			if(accA==0 || accB==0){
+				return null;
+			}
+			
+			if(accA>accB){
+				return a;
+			}
+			
+			return b;
+			
 		}
 		
 		/// <summary>
@@ -120,42 +179,47 @@ namespace Nitrassic
 		/// <returns> A primitive number value. </returns>
 		public static double ToNumber(object value)
 		{
-			if (value is double)
-				return (double)value;
-			if (value is int)
-				return (double)(int)value;
-			if (value is uint)
-				return (double)(uint)value;
+			
 			if (value == null || value == Undefined.Value)
 				return double.NaN;
+			
 			if (value == Null.Value)
 				return +0;
-			if (value is bool)
-				return (bool)value ? 1 : 0;
-			if (value is string)
-				return NumberParser.CoerceToNumber((string)value);
-			if (value is ConcatenatedString)
-				return NumberParser.CoerceToNumber(value.ToString());
-			if (value is ObjectInstance)
-				return ToNumber(ToPrimitive(value, PrimitiveTypeHint.Number));
-			throw new ArgumentException(string.Format("Cannot convert object of type '{0}' to a number.", value.GetType()), "value");
-		}
-
-		// Single-item cache.
-		private class NumberToStringCache
-		{
-			public double Value;
-			public string Result;
 			
-			public NumberToStringCache(double v,string r){
-				Value=v;
-				Result=r;
+			// Get the type:
+			Type valuesType=value.GetType();
+			
+			if (valuesType==typeof(double))
+				return (double)value;
+			if (valuesType==typeof(int))
+				return (double)(int)value;
+			if (valuesType==typeof(uint))
+				return (double)(uint)value;
+			if (valuesType==typeof(byte))
+				return (double)(byte)value;
+			if (valuesType==typeof(sbyte))
+				return (double)(sbyte)value;
+			if (valuesType==typeof(short))
+				return (double)(short)value;
+			if (valuesType==typeof(ushort))
+				return (double)(ushort)value;
+			if (valuesType==typeof(float))
+				return (double)(float)value;
+			if (valuesType==typeof(bool))
+				return (bool)value ? 1 : 0;
+			if (valuesType==typeof(string))
+				return NumberParser.CoerceToNumber((string)value);
+			
+			// If all else fails, use the string:
+			double number=NumberParser.CoerceToNumber(value.ToString());
+			
+			if(number==double.NaN){
+				throw new ArgumentException("Cannot convert object of type '"+valuesType+"' to a number.", "value");
 			}
 			
+			return number;
 		}
 		
-		private static NumberToStringCache numberToStringCache = new NumberToStringCache(0.0,"0");
-
 		/// <summary>
 		/// Converts any JavaScript value to a primitive string value.
 		/// </summary>
@@ -169,24 +233,6 @@ namespace Nitrassic
 				return "null";
 			if (value is bool)
 				return (bool)value ? "true" : "false";
-			if (value is double)
-			{
-				// Check if the value is in the cache.
-				double doubleValue = (double)value;
-				var cache = numberToStringCache;
-				if (doubleValue == cache.Value)
-					return cache.Result;
-
-				// Convert the number to a string.
-				var result = NumberFormatter.ToString((double)value, 10, NumberFormatter.Style.Regular);
-
-				// Cache the result.
-				// This is thread-safe on Intel but not architectures with weak write ordering.
-				numberToStringCache = new NumberToStringCache(doubleValue,result);
-
-				return result;
-			}
-			
 			return value.ToString();
 		}
 

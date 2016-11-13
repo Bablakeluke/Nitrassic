@@ -25,6 +25,12 @@ namespace Nitrassic.Compiler
 		public override void GenerateCode(ILGenerator generator, OptimizationInfo optimizationInfo)
 		{
 			
+			// Get the previous root - we'll be changing it:
+			Expression prevRoot=optimizationInfo.RootExpression;
+			
+			// Labelled is now the root:
+			Labelled.SetRoot(optimizationInfo);
+			
 			if (Labelled.DefaultBreakStatementBehaviour)
 			{
 				
@@ -40,11 +46,14 @@ namespace Nitrassic.Compiler
 				
 			}else{
 				
-				// Loop, For-In or Switch only.
+				// Loop, For-In, For-Of or Switch only.
 				optimizationInfo.Labels=labels;
 				Labelled.GenerateCode(generator,optimizationInfo);
 				
 			}
+			
+			// Restore root:
+			optimizationInfo.RootExpression=prevRoot;
 			
 		}
 		

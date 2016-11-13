@@ -115,7 +115,7 @@ namespace Nitrassic.Library
 			{
 				var tempObject = ObjectInstance.OnConstruct(engine);
 				tempObject[string.Empty] = root;
-				return this.ReviverFunction.CallLateBound(tempObject, string.Empty, root);
+				return this.ReviverFunction.CallLateBound(engine,tempObject, string.Empty, root);
 			}
 
 			return root;
@@ -176,7 +176,7 @@ namespace Nitrassic.Library
 				// Apply the reviver function.
 				if (this.ReviverFunction != null)
 				{
-					var transformedValue = this.ReviverFunction.CallLateBound(result, arrayIndex.ToString(), elementValue);
+					var transformedValue = this.ReviverFunction.CallLateBound(engine,result, arrayIndex.ToString(), elementValue);
 					if (transformedValue != elementValue)
 					{
 						if (transformedValue == Undefined.Value || transformedValue == null)
@@ -243,7 +243,7 @@ namespace Nitrassic.Library
 				// Apply the reviver function.
 				if (this.ReviverFunction != null)
 				{
-					var transformedValue = this.ReviverFunction.CallLateBound(result, propertyName, propertyValue);
+					var transformedValue = this.ReviverFunction.CallLateBound(engine,result, propertyName, propertyValue);
 					if (transformedValue != propertyValue)
 					{
 						if (transformedValue == Undefined.Value || transformedValue == null)

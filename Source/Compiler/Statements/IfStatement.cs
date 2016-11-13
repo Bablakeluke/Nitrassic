@@ -24,7 +24,55 @@ namespace Nitrassic.Compiler
 		/// Gets or sets the statement that is executed if the condition is false.
 		/// </summary>
 		public Statement ElseClause;
-
+		
+		/// <summary>Set if this statement has a static result.</summary>
+		private object StaticResult;
+		
+		/// <summary>
+		/// Resolves which function is being called where possible.
+		/// </summary>
+		internal override void ResolveVariables(OptimizationInfo optimizationInfo)
+		{
+			
+			// Resolve condition:
+			Condition.ResolveVariables(optimizationInfo);
+			
+			// Is the condition constant?
+			StaticResult=Condition.Evaluate();
+			
+			if(StaticResult==null){
+				
+				// Resolve both:
+				IfClause.ResolveVariables(optimizationInfo);
+				
+				if(ElseClause!=null){
+					// Only resolve else.
+					ElseClause.ResolveVariables(optimizationInfo);
+				}
+				
+			}else{
+				
+				// Convert it to a bool:
+				bool result=TypeConverter.ToBoolean(StaticResult);
+				
+				if(result){
+					
+					// Only resolve if.
+					IfClause.ResolveVariables(optimizationInfo);
+					
+				}else{
+					
+					if(ElseClause!=null){
+						// Only resolve else.
+						ElseClause.ResolveVariables(optimizationInfo);
+					}
+					
+				}
+				
+			}
+			
+		}
+		
 		/// <summary>
 		/// Generates CIL for the statement.
 		/// </summary>
@@ -33,10 +81,51 @@ namespace Nitrassic.Compiler
 		public override void GenerateCode(ILGenerator generator, OptimizationInfo optimizationInfo)
 		{
 			
+			// Get the root:
+			Expression prevRoot=optimizationInfo.RootExpression;
+			
+			// Is the condition constant?
+			if(StaticResult!=null){
+				
+				// We have a compile-time constant (i.e. if(true) )
+				
+				// Convert it to a bool:
+				bool result=TypeConverter.ToBoolean(StaticResult);
+				
+				if(result){
+					// if(true)
+					
+					// Generate code for the if clause which is now the root:
+					IfClause.SetRoot(optimizationInfo);
+					
+					IfClause.GenerateCode(generator, optimizationInfo);
+					
+				}else{
+					// if(false)
+					
+					if(ElseClause!=null){
+						
+						// It's now the root:
+						ElseClause.SetRoot(optimizationInfo);
+						
+						// Code for the else clause:
+						ElseClause.GenerateCode(generator, optimizationInfo);
+						
+					}
+					
+				}
+				
+				// Restore root:
+				optimizationInfo.RootExpression=prevRoot;
+				
+				return;
+				
+			}
+			
 			// Generate code for the condition and coerce to a boolean.
 			this.Condition.GenerateCode(generator, optimizationInfo);
 			EmitConversion.ToBool(generator, this.Condition.GetResultType(optimizationInfo));
-
+			
 			// We will need a label at the end of the if statement.
 			var endOfEverything = generator.CreateLabel();
 
@@ -44,9 +133,12 @@ namespace Nitrassic.Compiler
 			{
 				// Jump to the end if the condition is false.
 				generator.BranchIfFalse(endOfEverything);
-
+				
+				// If clause is now the root:
+				IfClause.SetRoot(optimizationInfo);
+				
 				// Generate code for the if clause.
-				this.IfClause.GenerateCode(generator, optimizationInfo);
+				IfClause.GenerateCode(generator, optimizationInfo);
 			}
 			else
 			{
@@ -54,20 +146,29 @@ namespace Nitrassic.Compiler
 				var startOfElseClause = generator.CreateLabel();
 				generator.BranchIfFalse(startOfElseClause);
 
+				// If clause is now the root:
+				IfClause.SetRoot(optimizationInfo);
+				
 				// Generate code for the if clause.
-				this.IfClause.GenerateCode(generator, optimizationInfo);
+				IfClause.GenerateCode(generator, optimizationInfo);
 
 				// Branch to the end of the if statement.
 				generator.Branch(endOfEverything);
 
+				// Else clause is now the root:
+				ElseClause.SetRoot(optimizationInfo);
+				
 				// Generate code for the else clause.
 				generator.DefineLabelPosition(startOfElseClause);
-				this.ElseClause.GenerateCode(generator, optimizationInfo);
+				ElseClause.GenerateCode(generator, optimizationInfo);
 				
 			}
 
 			// Define the label at the end of the if statement.
 			generator.DefineLabelPosition(endOfEverything);
+			
+			// Restore root:
+			optimizationInfo.RootExpression=prevRoot;
 			
 		}
 

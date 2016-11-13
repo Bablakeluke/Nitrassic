@@ -42,7 +42,8 @@ namespace Nitrassic.Compiler{
 		internal override Type Get(ILGenerator generator)
 		{
 			
-			// Load the value in the variable:
+			// Load the value in the variable
+			// (note that there's an ArgVariable for the 'this' keyword too, so ArgumentID is aligned already):
 			generator.LoadArgument(ArgumentID);
 			
 			return _Type;
@@ -83,7 +84,7 @@ namespace Nitrassic.Compiler{
 			
 		}
 		
-		internal override void Set(ILGenerator generator, OptimizationInfo optimizationInfo, Type valueType, SetValueMethod value)
+		internal override void Set(ILGenerator generator, OptimizationInfo optimizationInfo,bool rIU, Type valueType, SetValueMethod value)
 		{
 			
 			if(_Type==null)
@@ -95,17 +96,33 @@ namespace Nitrassic.Compiler{
 				// Essentially declaring a new variable.
 				// This overwrites the name reference in the scope to the new variable.
 				
-				Scope.DeclareVariable(Name,valueType,null).Set(generator,optimizationInfo,valueType,value);
+				Scope.AddVariable(Name,valueType,null).Set(generator,optimizationInfo,rIU,valueType,value);
 				
 				return;
 			}
 			
 			// Load the value:
-			value();
+			value(rIU);
 			
 			// Store it in the arg:
 			generator.StoreArgument(ArgumentID);
 			
+		}
+		
+		public Type RawType{
+			get{
+				return _Type;
+			}
+			set{
+				if(value==null || value==typeof(Nitrassic.Null)){
+					// The type is unknown.
+					_Type=null;
+					return;
+				}
+				
+				_Type=value;
+				
+			}
 		}
 		
 		internal override Type Type
@@ -116,6 +133,12 @@ namespace Nitrassic.Compiler{
 			}
 			set
 			{
+				
+				if(value==null || value==typeof(Nitrassic.Null)){
+					// Null has no effect on variable types.
+					return;
+				}
+				
 				_Type=value;
 			}
 		}

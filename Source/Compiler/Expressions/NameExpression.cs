@@ -42,10 +42,6 @@ namespace Nitrassic.Compiler
 		
 		public Variable Variable{
 			get{
-				if(_Variable==null)
-				{
-					Resolve();
-				}
 				return _Variable;
 			}
 			set{
@@ -63,7 +59,70 @@ namespace Nitrassic.Compiler
 				return typeof(object);
 			}
 			
-			return Variable.Type;
+			Type type=Variable.Type;
+			
+			if(type==null){
+				return typeof(Nitrassic.Undefined);
+			}
+			
+			return type;
+			
+		}
+		
+		public override object Evaluate(){
+			
+			// Try loading a constant now:
+			Variable v=Variable;
+			
+			if(v==null){
+				// Undefined.
+				return Undefined.Value;
+			}
+			
+			if(v.IsConstant){
+				
+				return v.ConstantValue;
+				
+			}
+			
+			return null;
+			
+		}
+		
+		public object GetConstantValue(){
+			
+			// Try loading a constant now:
+			Variable v=Variable;
+			
+			if(v!=null && v.IsConstant){
+				return v.ConstantValue;
+			}
+			
+			return null;
+			
+		}
+		
+		public object TryApplyConstant(OptimizationInfo optimizationInfo,Expression expr){
+			
+			// Try loading a constant now:
+			Variable v=Variable;
+			
+			if(v!=null&& v.TryLoadConstant(expr)){
+				return v.ConstantValue;
+			}
+			
+			return null;
+			
+		}
+		
+		public void TryApplyConstant(OptimizationInfo optimizationInfo,bool isConst){
+			
+			Variable v=Variable;
+			
+			if(v!=null){
+				v.IsConstant=isConst;
+			}
+			
 		}
 		
 		/// <summary>
@@ -78,67 +137,35 @@ namespace Nitrassic.Compiler
 		}
 		
 		/// <summary>Resolves the type of variable this is referencing.</summary>
-		public void Resolve()
+		internal override void ResolveVariables(OptimizationInfo optimizationInfo)
 		{
+			
+			if(_Variable!=null){
+				return;
+			}
+			
+			// Resolve kids:
+			base.ResolveVariables(optimizationInfo);
 			
 			var scope = this.Scope;
 			
-			do
-			{
+			while (scope != null){
 				
-				DeclarativeScope dScope=scope as DeclarativeScope;
+				// Is the variable in this scope?
+				_Variable = scope.GetVariable(Name);
 				
-				if (dScope!=null)
+				if (_Variable != null)
 				{
-					// The variable was declared in this scope.
-					var variable = dScope.GetDeclaredVariable(this.Name);
+					// The scope has been optimized away.  The value of the variable is stored
+					// in an ILVariable.
 					
-					if (variable != null)
-					{
-						// The scope has been optimized away.  The value of the variable is stored
-						// in an ILVariable.
-						_Variable=variable;
-						
-						// The variable was found - no need to search any more parent scopes.
-						return;
-					}
-				}
-				else
-				{
-					if (scope.ParentScope == null)
-					{
-
-						// Global variable access
-						// -------------------------------------------
-						
-						// Gets or defines it as a global:
-						_Variable=scope.Engine.Global.Get(Name);
-						
-						break;
-					}
-					else
-					{
-						
-						// Object scope - what object type is it for?
-						Prototype proto=(scope as ObjectScope).ScopePrototype;
-						
-						_Variable=proto.GetProperty(Name);
-						
-						if(_Variable!=null)
-						{
-							break;
-						}
-						
-					}
+					// The variable was found - no need to search any more parent scopes.
+					return;
+					
 				}
 				
 				scope = scope.ParentScope;
 
-			} while (scope != null);
-			
-			if(_Variable==null)
-			{
-				throw new InvalidOperationException("Invalid scope chain.");
 			}
 			
 		}
@@ -153,22 +180,11 @@ namespace Nitrassic.Compiler
 		public void GenerateGet(ILGenerator generator, OptimizationInfo optimizationInfo, bool throwIfUnresolvable)
 		{
 			
-			if(Name=="window")
-			{
-				
-				// Special case - just directly emit a ref to the global scope:
-				EmitHelpers.GlobalObject(generator);
-				
-				return;
-				
-			}
-			
 			if(Variable==null)
 			{
-				if(throwIfUnresolvable)
-				{
-					throw new JavaScriptException(generator.Engine,"ReferenceError",this.Name + " is not defined");
-				}
+				
+				// It's undefined:
+				EmitHelpers.EmitUndefined(generator);
 				
 				return;
 			}
@@ -186,6 +202,23 @@ namespace Nitrassic.Compiler
 			
 		}
 
+		public void ApplyType(OptimizationInfo optimizationInfo,Type type){
+			
+			if(Variable==null)
+			{
+				
+				// Create a new variable:
+				Variable=Scope.AddVariable(Name,type,null);
+				
+			}else{
+				
+				// Set type:
+				Variable.Type=type;
+				
+			}
+			
+		}
+		
 		/// <summary>
 		/// Stores the value on the top of the stack in the reference.
 		/// </summary>
@@ -194,33 +227,39 @@ namespace Nitrassic.Compiler
 		/// <param name="valueType"> The primitive type of the value that is on the top of the stack. </param>
 		/// <param name="throwIfUnresolvable"> <c>true</c> to throw a ReferenceError exception if
 		/// the name is unresolvable; <c>false</c> to create a new property instead. </param>
-		public void GenerateSet(ILGenerator generator, OptimizationInfo optimizationInfo, Type valueType, SetValueMethod value, bool throwIfUnresolvable)
+		public void GenerateSet(ILGenerator generator, OptimizationInfo optimizationInfo,bool rIU, Type valueType, SetValueMethod value, bool throwIfUnresolvable)
 		{
-			
-			if(Name=="window")
-			{
-				throw new JavaScriptException(generator.Engine,"TypeError","window is read-only.");
-			}
 			
 			if(Variable==null)
 			{
 				
 				// Create a new variable:
-				Variable=Scope.DeclareVariable(Name,valueType,null);
+				Variable=Scope.AddVariable(Name,valueType,null);
 				
 			}
 			else if(Variable.IsHoisted(Scope))
 			{
 				
-				Wrench.Log.Add("Slow scope hoisting used which is assumed to be unnecessary. Ignoring it.");
+				Wrench.Log.Add("Attempted to set a hoisted variable. This is slow and is usually unnecessary. Ignoring it by treating it as a local.");
+				
+				// This happens in this situation:
+				// function a(){
+				//  var b="hello!";
+				//  var test=function(){
+				//     b="overwriting a hoisted variable here (Nitrassic treats it as a new local in test's scope)";
+				//   };
+				//  // Nitrassic is wrong if this happens:
+				//  test();
+				//  console.log(b); // *should* be the value set from inside test
+				// }
 				
 				// Create a new variable:
-				Variable=Scope.DeclareVariable(Name,valueType,null);
+				Variable=Scope.AddVariable(Name,valueType,null);
 				
 			}
 			
 			// Output a set now:
-			Variable.Set(generator,optimizationInfo,valueType,value);
+			Variable.Set(generator,optimizationInfo,rIU,valueType,value);
 			
 		}
 
@@ -284,38 +323,21 @@ namespace Nitrassic.Compiler
 				}
 				else
 				{
-					if (scope.ParentScope == null)
+					
+					// Object scope - what object type is it for?
+					Prototype proto=(scope as ObjectScope).ScopePrototype;
+					
+					_Variable=proto.GetProperty(Name);
+					
+					if(_Variable!=null)
 					{
-
-						// Global variable access
-						// -------------------------------------------
-						
-						// Gets or defines it as a global:
-						_Variable=generator.Engine.Global.Get(Name);
 						
 						// Output a get now:
 						_Variable.Get(generator);
 						
 						break;
 					}
-					else
-					{
-						
-						// Object scope - what object type is it for?
-						Prototype proto=(scope as ObjectScope).ScopePrototype;
-						
-						_Variable=proto.GetProperty(Name);
-						
-						if(_Variable!=null)
-						{
-							
-							// Output a get now:
-							_Variable.Get(generator);
-							
-							break;
-						}
-						
-					}
+					
 				}
 				
 				scope = scope.ParentScope;

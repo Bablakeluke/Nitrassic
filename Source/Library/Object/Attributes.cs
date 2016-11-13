@@ -30,9 +30,14 @@ namespace Nitrassic.Library
 		public bool IsWritable=true;
 		
 		/// <summary>
-		/// Used to automatically lowercase the first character of a method name.
+		/// Used to automatically lowercase the first character of a method/field name.
 		/// </summary>
 		public CaseMode FirstCharacter=CaseMode.Auto;
+		
+		/// <summary>
+		/// Used to automatically lowercase the first character of a types fields.
+		/// </summary>
+		public CaseMode FirstFieldCharacter=CaseMode.Auto;
 		
 	}
 	

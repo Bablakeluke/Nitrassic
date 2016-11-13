@@ -80,7 +80,10 @@ namespace Nitrassic.Compiler
 				generator.Branch(jumpTargets[defaultIndex]);
 			else
 				generator.Branch(endOfSwitch);
-
+			
+			// Get the previous root - we'll be changing it:
+			Expression prevRoot=optimizationInfo.RootExpression;
+			
 			for (int i = 0; i < this.CaseClauses.Count; i++)
 			{
 				// Define a label at the start of the case clause.
@@ -90,9 +93,16 @@ namespace Nitrassic.Compiler
 				optimizationInfo.PushBreakOrContinueInfo(labels, endOfSwitch, null, false);
 
 				// Emit the case clause statements.
-				foreach (var statement in this.CaseClauses[i].BodyStatements)
+				foreach (var statement in this.CaseClauses[i].BodyStatements){
+					
+					// Mark as root:
+					statement.SetRoot(optimizationInfo);
+					
+					// Emit:
 					statement.GenerateCode(generator, optimizationInfo);
-
+					
+				}
+				
 				// Revert the information needed by the break statement.
 				optimizationInfo.PopBreakOrContinueInfo();
 			}
@@ -102,6 +112,9 @@ namespace Nitrassic.Compiler
 
 			// Release the switch value variable for use elsewhere.
 			generator.ReleaseTemporaryVariable(switchValue);
+			
+			// Restore root:
+			optimizationInfo.RootExpression=prevRoot;
 			
 		}
 

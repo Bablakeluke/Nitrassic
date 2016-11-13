@@ -104,6 +104,11 @@ namespace Nitrassic.Library
 			get { return ToJSDate(this.value); }
 		}
 
+		/// <summary>Gets this date as a double.</summary>
+		public double ToNumber(){
+			return ToJSDate(this.value);
+		}
+
 		/// <summary>
 		/// Gets a value indicating whether the date instance is valid.  A date can be invalid if
 		/// NaN is passed to any of the constructor parameters.
@@ -115,8 +120,7 @@ namespace Nitrassic.Library
 		
 		//	 JAVASCRIPT FUNCTIONS
 		//_________________________________________________________________________________________
-
-
+		
 		/// <summary>
 		/// Returns the year component of this date, according to local time.
 		/// </summary>

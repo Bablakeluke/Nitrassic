@@ -23,19 +23,20 @@ namespace Nitrassic.Compiler
 		/// <param name="functionName"> The name of the function.  Can be empty for an anonymous function. </param>
 		/// <param name="argumentNames"> The names of each of the function arguments. </param>
 		/// <returns> A new DeclarativeScope instance. </returns>
-		internal static DeclarativeScope CreateFunctionScope(Scope parentScope, string functionName, IEnumerable<ArgVariable> args)
+		internal static DeclarativeScope CreateFunctionScope(Scope parentScope, string functionName, List<ArgVariable> args)
 		{
-			if (parentScope == null)
-				throw new ArgumentNullException("parentScope", "Function scopes must have a parent scope.");
 			if (functionName == null)
 				throw new ArgumentNullException("functionName");
 			if (args == null)
 				throw new ArgumentNullException("args");
 			DeclarativeScope result = new DeclarativeScope(parentScope, 0);
 			if (string.IsNullOrEmpty(functionName) == false)
-				result.DeclareVariable(functionName);
-			result.DeclareVariable("this");
-			result.DeclareVariable("arguments");
+				result.AddVariable(functionName);
+			
+			// At this point, the 'this' keyword is already in args.
+			
+			result.AddVariable("arguments");
+			
 			foreach (ArgVariable arg in args)
 			{
 				result.Declare(arg);
@@ -44,7 +45,25 @@ namespace Nitrassic.Compiler
 			
 			return result;
 		}
-
+		
+		/// <summary>Called before recompiling a function with different args.</summary>
+		public override void Reset(){
+			
+			foreach(KeyValuePair<string,Variable> kvp in variables){
+				
+				DeclaredVariable dec=kvp.Value as DeclaredVariable;
+				
+				if(dec==null){
+					continue;
+				}
+				
+				// Ensure store is cleared out:
+				dec.Store=null;
+				
+			}
+			
+		}
+		
 		/// <summary>
 		/// Creates a new declarative scope for use inside a catch statement.
 		/// </summary>
@@ -58,7 +77,7 @@ namespace Nitrassic.Compiler
 			if (catchVariableName == null)
 				throw new ArgumentNullException("catchVariableName");
 			DeclarativeScope result = new DeclarativeScope(parentScope, 0);
-			result.DeclareVariable(catchVariableName);
+			result.AddVariable(catchVariableName);
 			result.CanDeclareVariables = false;	// Only the catch variable can be declared in this scope.
 			return result;
 		}
@@ -91,6 +110,19 @@ namespace Nitrassic.Compiler
 		}
 		
 		/// <summary>
+		/// Creates a new DeclarativeScope instance.
+		/// </summary>
+		/// <param name="declaredVariableCount"> The number of variables declared in this scope. </param>
+		internal DeclarativeScope(ScriptEngine engine, int declaredVariableCount)
+			: base(engine)
+		{
+		
+			this.variables = new Dictionary<string, Variable>(declaredVariableCount);
+			this.CanDeclareVariables = false;
+			
+		}
+		
+		/// <summary>
 		/// Returns <c>true</c> if the given variable has been declared in this scope.
 		/// </summary>
 		/// <param name="name"> The name of the variable. </param>
@@ -107,7 +139,7 @@ namespace Nitrassic.Compiler
 			variables[variable.Name]=variable;
 		}
 		
-		internal override Variable DeclareVariable(string name,Type type,Expression valueAtTopOfScope)
+		internal override Variable AddVariable(string name,Type type,Expression valueAtTopOfScope)
 		{
 			if (name == null)
 				throw new ArgumentNullException("name");
@@ -117,7 +149,7 @@ namespace Nitrassic.Compiler
 			{
 				if (this.ParentScope == null)
 					throw new InvalidOperationException("Invalid scope chain.");
-				return this.ParentScope.DeclareVariable(name, type, valueAtTopOfScope);
+				return this.ParentScope.AddVariable(name, type, valueAtTopOfScope);
 			}
 
 			Variable variable;
@@ -164,6 +196,10 @@ namespace Nitrassic.Compiler
 		/// <param name="optimizationInfo"> Information about any optimizations that should be performed. </param>
 		internal void GenerateDeclarations(ILGenerator generator, OptimizationInfo optimizationInfo)
 		{
+			
+			// Parent root:
+			Expression rootExpression=optimizationInfo.RootExpression;
+			
 			// Initialize the declared variables and functions.
 			foreach (var variable in this.variables.Values)
 			{
@@ -179,10 +215,22 @@ namespace Nitrassic.Compiler
 					// Emit the initialization code.
 					
 					var name = new NameExpression(this, dVariable.Name);
-					name.GenerateSet(generator, optimizationInfo, dVariable.ValueAtTopOfScope.GetResultType(optimizationInfo), delegate()
+					
+					Type rType=dVariable.ValueAtTopOfScope.GetResultType(optimizationInfo);
+					
+					name.ApplyType(optimizationInfo,rType);
+					
+					name.GenerateSet(generator, optimizationInfo,false, rType, delegate(bool two)
 					{
 						
+						optimizationInfo.RootExpression=dVariable.ValueAtTopOfScope;
+						
 						dVariable.ValueAtTopOfScope.GenerateCode(generator, optimizationInfo);
+						
+						if(two){
+							// Dupe it:
+							generator.Duplicate();
+						}
 						
 					}, false);
 					
@@ -190,6 +238,10 @@ namespace Nitrassic.Compiler
 					dVariable.Initialized = true;
 				}
 			}
+			
+			// Restore root:
+			optimizationInfo.RootExpression=rootExpression;
+			
 		}
 	
 		
@@ -207,10 +259,11 @@ namespace Nitrassic.Compiler
 		/// <param name="variableName"> The name of the variable. </param>
 		/// <returns> The index of the given variable, or <c>-1</c> if the variable doesn't exist
 		/// in the scope. </returns>
-		internal Variable GetDeclaredVariable(string variableName)
+		internal override Variable GetVariable(string variableName)
 		{
 			if (variableName == null)
 				throw new ArgumentNullException("variableName");
+				
 			Variable variable;
 			variables.TryGetValue(variableName, out variable);
 			return variable;

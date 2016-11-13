@@ -27,11 +27,26 @@ namespace Nitrassic.Compiler
 		public override void GenerateCode(ILGenerator generator, OptimizationInfo optimizationInfo)
 		{
 			
-			foreach (var statement in this.Statements)
+			// Parent root:
+			Expression rootExpression=optimizationInfo.RootExpression;
+			
+			int max=Statements.Count;
+			
+			for (int i=0;i<max;i++)
 			{
 				// Generate code for the statement.
+				Statement statement=Statements[i];
+				
+				// Apply the root:
+				statement.SetRoot(optimizationInfo);
+				
+				// Generate the code:
 				statement.GenerateCode(generator, optimizationInfo);
+				
 			}
+			
+			// Restore root:
+			optimizationInfo.RootExpression=rootExpression;
 			
 		}
 

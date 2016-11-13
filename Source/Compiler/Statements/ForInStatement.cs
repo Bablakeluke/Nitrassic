@@ -24,11 +24,20 @@ namespace Nitrassic.Compiler
 		/// Gets or sets the loop body.
 		/// </summary>
 		public Statement Body;
-
+		
 		public override bool DefaultBreakStatementBehaviour{
 			get{
 				return false;
 			}
+		}
+		
+		internal override void ResolveVariables(OptimizationInfo optimizationInfo){
+			
+			// Apply var:
+			Variable.ApplyType(optimizationInfo,typeof(string));
+			
+			base.ResolveVariables(optimizationInfo);
+			
 		}
 		
 		/// <summary>
@@ -38,6 +47,9 @@ namespace Nitrassic.Compiler
 		/// <param name="optimizationInfo"> Information about any optimizations that should be performed. </param>
 		public override void GenerateCode(ILGenerator generator, OptimizationInfo optimizationInfo)
 		{
+			
+			// Get the previous root - we'll be changing it:
+			Expression prevRoot=optimizationInfo.RootExpression;
 			
 			List<string> labels=optimizationInfo.Labels;
 			optimizationInfo.Labels=null;
@@ -60,10 +72,7 @@ namespace Nitrassic.Compiler
 			this.TargetObject.GenerateCode(generator, optimizationInfo);
 			EmitConversion.ToAny(generator, this.TargetObject.GetResultType(optimizationInfo));
 			generator.Call(ReflectionHelpers.TypeUtilities_EnumeratePropertyNames);
-
-			// Call IEnumerable<string>.GetEnumerator()
-			generator.Call(ReflectionHelpers.IEnumerable_GetEnumerator);
-
+			
 			// Store the enumerator in a temporary variable.
 			var enumerator = generator.CreateTemporaryVariable(typeof(IEnumerator<string>));
 			generator.StoreVariable(enumerator);
@@ -82,20 +91,33 @@ namespace Nitrassic.Compiler
 			generator.BranchIfFalse(breakTarget);
 
 			// lhs = enumerator.Current;
-			this.Variable.GenerateSet(generator, optimizationInfo, typeof(string), delegate(){
+			this.Variable.GenerateSet(generator, optimizationInfo,false, typeof(string), delegate(bool two){
 				
 				generator.LoadVariable(enumerator);
 				generator.Call(ReflectionHelpers.IEnumerator_Current);
 				
+				if(two){
+					generator.Duplicate();
+				}
+				
 			}, false);
-
+			
+			
+			
 			// Emit the body statement(s).
 			optimizationInfo.PushBreakOrContinueInfo(labels, breakTarget, continueTarget, false);
-			this.Body.GenerateCode(generator, optimizationInfo);
+			
+			// Mark the body as root:
+			Body.SetRoot(optimizationInfo);
+			
+			Body.GenerateCode(generator, optimizationInfo);
 			optimizationInfo.PopBreakOrContinueInfo();
 
 			generator.Branch(continueTarget);
 			generator.DefineLabelPosition(breakTarget);
+			
+			// Restore root:
+			optimizationInfo.RootExpression=prevRoot;
 			
 		}
 

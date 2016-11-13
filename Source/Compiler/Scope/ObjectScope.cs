@@ -19,7 +19,6 @@ namespace Nitrassic.Compiler
 
 		private bool providesImplicitThisValue;
 		
-		#warning set me!
 		/// <summary>
 		/// Essentially the type of object that is the focus of this scope, if there is one.
 		/// Note that the global scope does not have this.
@@ -27,51 +26,54 @@ namespace Nitrassic.Compiler
 		public Prototype ScopePrototype;
 		
 		/// <summary>
-		/// Creates a new global object scope.
-		/// </summary>
-		/// <returns> A new ObjectScope instance. </returns>
-		internal static ObjectScope CreateGlobalScope(ScriptEngine engine)
-		{
-			return new ObjectScope(engine);
-		}
-
-		/// <summary>
 		/// Creates a new object scope for use inside a with statement.
 		/// </summary>
 		/// <param name="parentScope"> A reference to the parent scope.  Can not be <c>null</c>. </param>
 		/// <param name="scopeObject"> An expression that evaluates to the object to use. </param>
 		/// <returns> A new ObjectScope instance. </returns>
-		internal static ObjectScope CreateWithScope(Scope parentScope, Expression scopeObject)
+		internal static ObjectScope CreateWithScope(Scope parentScope, Expression scopeObject,OptimizationInfo optimizationInfo)
 		{
+			
 			if (parentScope == null)
 				throw new ArgumentException("With scopes must have a parent scope.");
-			return new ObjectScope(parentScope) { ScopeObjectExpression = scopeObject, ProvidesImplicitThisValue = true, CanDeclareVariables = false };
+			
+			// Get the type:
+			Type resultType=scopeObject.GetResultType(optimizationInfo);
+			
+			// Get the prototype:
+			Prototype proto=optimizationInfo.Engine.Prototypes.Get(resultType);
+			
+			// Create the scope:
+			ObjectScope scope=new ObjectScope(parentScope,proto);
+			scope.ScopeObjectExpression = scopeObject;
+			scope.ProvidesImplicitThisValue = true;
+			scope.CanDeclareVariables = false;
+			
+			return scope;
+			
 		}
-		
-		/// <summary>
-		/// Used when variables are declared whilst within an object scope.
-		/// </summary>
-		private DeclarativeScope Declared;
 		
 		/// <summary>
 		/// Creates a new ObjectScope instance.
 		/// </summary>
-		private ObjectScope(Scope parentScope)
+		internal ObjectScope(Scope parentScope,Prototype scopePrototype)
 			: base(parentScope)
 		{
 			this.ScopeObjectExpression = null;
 			this.ProvidesImplicitThisValue = false;
+			ScopePrototype=scopePrototype;
 			CanDeclareVariables=true;
 		}
 
 		/// <summary>
 		/// Creates a new ObjectScope instance.
 		/// </summary>
-		private ObjectScope(ScriptEngine engine)
+		internal ObjectScope(ScriptEngine engine,Prototype scopePrototype)
 			: base(engine)
 		{
 			this.ScopeObjectExpression = null;
 			this.ProvidesImplicitThisValue = false;
+			ScopePrototype=scopePrototype;
 			CanDeclareVariables=true;
 		}
 
@@ -95,76 +97,35 @@ namespace Nitrassic.Compiler
 			set { this.providesImplicitThisValue = value; }
 		}
 		
-		internal void GenerateDeclarations(ILGenerator generator, OptimizationInfo optimizationInfo)
-		{
+		internal override Variable GetVariable(string name){
 			
-			// Only ever occurs on the global scope.
-			
-			if(Declared==null)
-			{
-				return;
-			}
-			
-			float progress=0;
-			float total=Declared.variables.Count;
-			
-			// Initialize the declared variables and functions.
-			foreach (KeyValuePair<string,Variable> kvp in Declared.variables)
-			{
-				
-				progress++;
-				
-				GlobalVariable variable=kvp.Value as GlobalVariable;
-				
-				if (variable == null)
-					continue;
-
-				//if (variable.ValueAtTopOfScope == null)
-				//	continue;
-				
-				// Console.WriteLine(((progress/total)*100)+"% ["+variable.Name+", "+variable.Type+"]");
-				
-				// Variable should actually be a global.
-				
-				/*
-				// bool DefineProperty(string propertyName, PropertyDescriptor descriptor, bool throwOnError)
-				EmitHelpers.GlobalObject(generator);
-				generator.LoadString(variable.Name);
-				variable.ValueAtTopOfScope.GenerateCode(generator, optimizationInfo);
-				EmitConversion.Convert(generator, variable.ValueAtTopOfScope.GetResultType(optimizationInfo), typeof(object), optimizationInfo);
-				generator.LoadInt32((int)attributes);
-				generator.NewObject(ReflectionHelpers.PropertyDescriptor_Constructor2);
-				generator.LoadBoolean(false);
-				generator.Call(ReflectionHelpers.ObjectInstance_DefineProperty);
-				generator.Pop();
-				*/
-				
-			}
+			// Get the property:
+			return ScopePrototype.GetProperty(name);
 			
 		}
 		
-		internal override Variable DeclareVariable(string name,Type type, Expression valueAtTopOfScope)
+		internal override Variable AddVariable(string name,Type type, Expression valueAtTopOfScope)
 		{
 			
-			if(Declared==null)
-				Declared=new DeclarativeScope(this,1);
+			// Get the property:
+			PropertyVariable pv=ScopePrototype.GetProperty(name);
 			
-			if(ParentScope == null)
-			{
-				// This is the global scope. Create a global variable
-				// and add it to the declared set so it gets initialised correctly.
-				Variable _global=Engine.Global.Get(name);
+			if(pv!=null){
 				
-				if(type!=null)
-				{
-					_global.Type=type;
-				}
+				// Already exists - try to change the type (may collapse it):
+				pv.Type=type;
 				
-				Declared.Declare(_global);
-				return _global;
+				return pv;
 			}
 			
-			return Declared.DeclareVariable(name,type, valueAtTopOfScope);
+			// Add it now:
+			pv=ScopePrototype.AddProperty(name,null,Nitrassic.Library.PropertyAttributes.FullAccess);
+			
+			// Set the type:
+			pv.Type=type;
+			
+			return pv;
+			
 		}
 		
 	}

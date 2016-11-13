@@ -6,11 +6,14 @@ using Nitrassic.Compiler;
 namespace Nitrassic.Library
 {
 	/// <summary>
-	/// Provides functionality common to all JavaScript objects.
+	/// Provides functionality common to all objects.
 	/// </summary>
 	[JSProperties(Name="Object")]
 	public partial class ObjectInstance
 	{
+		
+		[JSProperties(Hidden=true)]
+		public static readonly Type PrototypeFor=typeof(object);
 		
 		// Host script engine.
 		private ScriptEngine engine;
@@ -35,25 +38,10 @@ namespace Nitrassic.Library
 		/// </summary>
 		internal ObjectInstance(ScriptEngine engine)
 		{
-			// this.prototype = engine.Prototypes.Get(GetType());
 			this.engine = engine;
 		}
 		
 		internal ObjectInstance(){}
-		
-		#warning incorrect
-		// Constructors dont set proto properly anymore.
-		/// <summary>
-		/// Called by derived classes to create a new object instance.
-		/// </summary>
-		/// <param name="prototype"> The next object in the prototype chain.  Cannot be <c>null</c>. </param>
-		internal ObjectInstance(Prototype prototype)
-		{
-			if (prototype == null)
-				throw new ArgumentNullException("prototype");
-			// this.prototype = prototype;
-			this.engine = prototype.Engine;
-		}
 		
 		public void SetPrototype(ObjectInstance prototype){
 			this.prototype = prototype;
@@ -65,14 +53,14 @@ namespace Nitrassic.Library
 		/// </summary>
 		/// <param name="engine"> The script engine associated with this object. </param>
 		/// <param name="prototype"> The next object in the prototype chain.  Can be <c>null</c>. </param>
-		protected ObjectInstance(ScriptEngine engine, Prototype prototype)
+		protected ObjectInstance(ScriptEngine engine, ObjectInstance prototype)
 		{
 			if (engine == null)
 				throw new ArgumentNullException("engine");
 			this.engine = engine;
-			// this.prototype = prototype;
+			this.prototype = prototype;
 		}
-
+		
 		/// <summary>
 		/// Creates an Object with no prototype to serve as the base prototype of all objects.
 		/// </summary>
@@ -82,15 +70,15 @@ namespace Nitrassic.Library
 		{
 			return new ObjectInstance(engine, null);
 		}
-
+		
 		/// <summary>
 		/// Creates an Object instance (use ObjectInstance.OnConstruct rather than this).
 		/// </summary>
 		/// <param name="prototype"> The next object in the prototype chain. </param>
 		/// <returns> An Object instance. </returns>
-		internal static ObjectInstance CreateRawObject(Prototype prototype)
+		internal static ObjectInstance CreateRawObject(ObjectInstance prototype)
 		{
-			return new ObjectInstance(prototype);
+			return new ObjectInstance(prototype.Engine,prototype);
 		}
 		
 		/// <summary>
@@ -179,7 +167,7 @@ namespace Nitrassic.Library
 				SetPropertyValue((uint)index, value, false);
 			}
 		}
-
+		
 		/// <summary>
 		/// Gets an enumerable list of every property name and value associated with this object.
 		/// Does not include properties in the prototype chain.
@@ -238,7 +226,7 @@ namespace Nitrassic.Library
 			if (propertyInfo.Exists == true)
 			{
 				// The property exists; it can be cached as long as it is not an accessor property.
-				if ((propertyInfo.Attributes & (PropertyAttributes.IsAccessorProperty | PropertyAttributes.IsLengthProperty)) != 0)
+				if ((propertyInfo.Attributes & (PropertyAttributes.IsAccessorProperty)) != 0)
 				{
 					// Getters and the length property cannot be cached.
 					cachedIndex = -1;
@@ -247,9 +235,7 @@ namespace Nitrassic.Library
 					// Call the getter if there is one.
 					if (propertyInfo.IsAccessor == true)
 						return ((PropertyAccessorValue)this.propertyValues[propertyInfo.Index]).GetValue(this);
-
-					// Otherwise, the property is the "magic" length property.
-					return ((Nitrassic.Library.Array)this).Length;
+					
 				}
 
 				// The property can be cached.
@@ -290,7 +276,7 @@ namespace Nitrassic.Library
 			if (propertyInfo.Exists == true)
 			{
 				// The property exists; it can be cached as long as it is not read-only or an accessor property.
-				if ((propertyInfo.Attributes & (PropertyAttributes.Writable | PropertyAttributes.IsAccessorProperty | PropertyAttributes.IsLengthProperty)) != PropertyAttributes.Writable)
+				if ((propertyInfo.Attributes & (PropertyAttributes.Writable | PropertyAttributes.IsAccessorProperty)) != PropertyAttributes.Writable)
 				{
 					cachedIndex = -1;
 					cacheKey = -1;
@@ -340,7 +326,7 @@ namespace Nitrassic.Library
 			if (propertyInfo.Exists == true)
 			{
 				// The property exists; it can be cached as long as it is not read-only or an accessor property.
-				if ((propertyInfo.Attributes & (PropertyAttributes.Writable | PropertyAttributes.IsAccessorProperty | PropertyAttributes.IsLengthProperty)) != PropertyAttributes.Writable)
+				if ((propertyInfo.Attributes & (PropertyAttributes.Writable | PropertyAttributes.IsAccessorProperty)) != PropertyAttributes.Writable)
 				{
 					cachedIndex = -1;
 					cacheKey = -1;
@@ -554,15 +540,13 @@ namespace Nitrassic.Library
 				{
 					// The property was found!
 					object value = prototypeObject.propertyValues[property.Index];
-					if ((property.Attributes & (PropertyAttributes.IsAccessorProperty | PropertyAttributes.IsLengthProperty)) == 0)
+					if ((property.Attributes & (PropertyAttributes.IsAccessorProperty)) == 0)
 						return value;
 
 					// Call the getter if there is one.
 					if (property.IsAccessor == true)
 						return ((PropertyAccessorValue)value).GetValue(thisValue);
-
-					// Otherwise, the property is the "magic" length property.
-					return ((Nitrassic.Library.Array)prototypeObject).Length;
+					
 				}
 
 				// Traverse the prototype chain.
@@ -622,11 +606,7 @@ namespace Nitrassic.Library
 			var property = GetPropertyIndexAndAttributes(propertyName);
 			if (property.Exists == true)
 			{
-				if (property.IsLength == false)
-					return new PropertyDescriptor(this.propertyValues[property.Index], property.Attributes);
-
-				// The property is the "magic" length property.
-				return new PropertyDescriptor(((Nitrassic.Library.Array)this).Length, property.Attributes);
+				return new PropertyDescriptor(this.propertyValues[property.Index], property.Attributes);
 			}
 
 			// The property doesn't exist.
@@ -719,7 +699,7 @@ namespace Nitrassic.Library
 					return true;
 				}
 
-				if ((property.Attributes & (PropertyAttributes.IsAccessorProperty | PropertyAttributes.IsLengthProperty)) == 0)
+				if ((property.Attributes & (PropertyAttributes.IsAccessorProperty)) == 0)
 				{
 					// The property contains a simple value.  Set the property value.
 					this.propertyValues[property.Index] = value;
@@ -729,15 +709,7 @@ namespace Nitrassic.Library
 					// The property contains an accessor function.  Set the property value by calling the accessor.
 					((PropertyAccessorValue)this.propertyValues[property.Index]).SetValue(this, value);
 				}
-				else
-				{
-					// Otherwise, the property is the "magic" length property.
-					double length = TypeConverter.ToNumber(value);
-					uint lengthUint32 = TypeConverter.ToUint32(length);
-					if (length != (double)lengthUint32)
-						throw new JavaScriptException(this.Engine, "RangeError", "Invalid array length");
-					((Nitrassic.Library.Array)this).Length = lengthUint32;
-				}
+				
 				return true;
 			}
 
@@ -1115,7 +1087,7 @@ namespace Nitrassic.Library
 				throw new JavaScriptException(this.Engine, "TypeError", string.Format("Object {0} has no method '{1}'", this.ToString(), functionName));
 			if ((function is FunctionInstance) == false)
 				throw new JavaScriptException(this.Engine, "TypeError", string.Format("Property '{1}' of object {0} is not a function", this.ToString(), functionName));
-			return ((FunctionInstance)function).CallLateBound(thisObj, parameters);
+			return ((FunctionInstance)function).CallLateBound(Engine,thisObj, parameters);
 		}
 		
 		/// <summary>
@@ -1132,7 +1104,7 @@ namespace Nitrassic.Library
 				throw new JavaScriptException(this.Engine, "TypeError", string.Format("Object {0} has no method '{1}'", this.ToString(), functionName));
 			if ((function is FunctionInstance) == false)
 				throw new JavaScriptException(this.Engine, "TypeError", string.Format("Property '{1}' of object {0} is not a function", this.ToString(), functionName));
-			return ((FunctionInstance)function).CallLateBound(this, parameters);
+			return ((FunctionInstance)function).CallLateBound(Engine,this, parameters);
 		}
 		
 		/// <summary>
@@ -1150,7 +1122,7 @@ namespace Nitrassic.Library
 				result = null;
 				return false;
 			}
-			result = ((FunctionInstance)function).CallLateBound(this, parameters);
+			result = ((FunctionInstance)function).CallLateBound(Engine,this, parameters);
 			return true;
 		}
 
@@ -1289,7 +1261,8 @@ namespace Nitrassic.Library
 		/// </summary>
 		public static ObjectInstance OnConstruct(ScriptEngine engine)
 		{
-			return ObjectInstance.CreateRawObject(engine.Prototypes.ObjectPrototype);
+			#warning doesn't apply a suitable runtime friendly prototype
+			return new ObjectInstance(engine,null);// engine.Prototypes.ObjectPrototype);
 		}
 		
 		//	 JAVASCRIPT FUNCTIONS
@@ -1337,7 +1310,7 @@ namespace Nitrassic.Library
 		{
 			var result = Nitrassic.Library.Array.New(obj.Engine);
 			foreach (var property in ((ObjectInstance)obj).Properties)
-				result.Push(property.Name);
+				result.Push(obj.Engine,property.Name);
 			return result;
 		}
 
@@ -1358,7 +1331,7 @@ namespace Nitrassic.Library
 			if (prototype == Null.Value)
 				result = ObjectInstance.CreateRootObject(engine);
 			else
-				result = ObjectInstance.CreateRawObject((Prototype)prototype);
+				result = ObjectInstance.CreateRawObject(prototype as ObjectInstance);
 			if (properties != null)
 				DefineProperties(result, properties);
 			return result;
@@ -1372,6 +1345,7 @@ namespace Nitrassic.Library
 		/// <param name="sources"> One or more source objects to copy properties from. </param>
 		/// <returns> A new object instance. </returns>
 		
+		/*
 		public static ObjectInstance Assign(ScriptEngine engine, ObjectInstance target, params object[] sources)
 		{
 			foreach (object rawSource in sources)
@@ -1388,7 +1362,8 @@ namespace Nitrassic.Library
 			}
 			return target;
 		}
-
+		*/
+		
 		/// <summary>
 		/// Modifies the value and attributes of a property.
 		/// </summary>
@@ -1532,7 +1507,7 @@ namespace Nitrassic.Library
 			var result = Nitrassic.Library.Array.New(obj.Engine);
 			foreach (var property in obj.Properties)
 				if (property.IsEnumerable == true)
-					result.Push(property.Name);
+					result.Push(obj.Engine,property.Name);
 			return result;
 		}
 

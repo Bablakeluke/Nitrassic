@@ -33,17 +33,21 @@ namespace Nitrassic
 
 		internal static MethodInfo TypeUtilities_TypeOf;
 		internal static MethodInfo TypeUtilities_EnumeratePropertyNames;
+		internal static MethodInfo TypeUtilities_EnumeratePropertyValues;
 		internal static MethodInfo TypeUtilities_Add;
 		internal static MethodInfo TypeUtilities_IsPrimitiveOrObject;
 		internal static MethodInfo TypeUtilities_VerifyThisObject;
 
 		internal static MethodInfo FunctionInstance_HasInstance;
-		internal static MethodInfo FunctionInstance_ConstructLateBound;
-		internal static MethodInfo FunctionInstance_CallLateBound;
 		internal static MethodInfo FunctionInstance_InstancePrototype;
 		
 		internal static FieldInfo PrototypeLookup_RegExp;
 		internal static FieldInfo PrototypeLookup_Object;
+		internal static MethodInfo PrototypeLookup_Get;
+		internal static MethodInfo Prototype_GetProperty;
+		internal static MethodInfo Object_GetPropertyValue;
+		internal static MethodInfo Object_SetPropertyValue;
+		internal static MethodInfo Object_HasProperty;
 		internal static MethodInfo Global_Eval;
 		
 		internal static ConstructorInfo String_Constructor_Char_Int;
@@ -74,27 +78,13 @@ namespace Nitrassic
 		
 		internal static MethodInfo RegExp_Construct;
 		internal static MethodInfo Array_New;
+		internal static MethodInfo Date_ToNumber;
 		internal static MethodInfo Delegate_CreateDelegate;
 		internal static MethodInfo Type_GetTypeFromHandle;
 		internal static MethodInfo MethodBase_GetMethodFromHandle;
 		internal static MethodInfo MethodLookup_Load;
 		internal static MethodInfo Decimal_ToDouble;
-		internal static MethodInfo BinderUtilities_ResolveOverloads;
 		internal static MethodInfo Convert_ToInt32_Double;
-
-		internal static MethodInfo ObjectInstance_Delete;
-		internal static MethodInfo ObjectInstance_DefineProperty;
-		internal static MethodInfo ObjectInstance_HasProperty;
-		internal static MethodInfo ObjectInstance_GetPropertyValue_String;
-		internal static MethodInfo ObjectInstance_GetPropertyValue_Int;
-		internal static MethodInfo ObjectInstance_SetPropertyValue_String;
-		internal static MethodInfo ObjectInstance_SetPropertyValue_Int;
-		internal static MethodInfo ObjectInstance_SetPropertyValueIfExists;
-		internal static FieldInfo ObjectInstance_PropertyValues;
-		internal static FieldInfo ObjectInstance_InlineCacheKey;
-		internal static MethodInfo ObjectInstance_InlineGetPropertyValue;
-		internal static MethodInfo ObjectInstance_InlineSetPropertyValue;
-		internal static MethodInfo ObjectInstance_InlineSetPropertyValueIfExists;
 		
 		internal static ConstructorInfo JavaScriptException_Constructor_Error;
 		internal static ConstructorInfo JavaScriptException_Constructor_Object;
@@ -126,7 +116,9 @@ namespace Nitrassic
 			TypeConverter_ToInt32 = GetStaticMethod(typeof(TypeConverter), "ToInt32", typeof(object));
 			TypeConverter_ToUint32 = GetStaticMethod(typeof(TypeConverter), "ToUint32", typeof(object));
 			TypeConverter_ToPrimitive = GetStaticMethod(typeof(TypeConverter), "ToPrimitive", typeof(object), typeof(PrimitiveTypeHint));
-
+			
+			Date_ToNumber = GetInstanceMethod(typeof(Date), "ToNumber");
+			
 			TypeComparer_Equals = GetStaticMethod(typeof(TypeComparer), "Equals", typeof(object), typeof(object));
 			TypeComparer_StrictEquals = GetStaticMethod(typeof(TypeComparer), "StrictEquals", typeof(object), typeof(object));
 			TypeComparer_LessThan = GetStaticMethod(typeof(TypeComparer), "LessThan", typeof(object), typeof(object));
@@ -138,34 +130,24 @@ namespace Nitrassic
 			
 			TypeUtilities_TypeOf = GetStaticMethod(typeof(TypeUtilities), "TypeOf", typeof(object));
 			TypeUtilities_EnumeratePropertyNames = GetStaticMethod(typeof(TypeUtilities), "EnumeratePropertyNames", typeof(ScriptEngine), typeof(object));
+			TypeUtilities_EnumeratePropertyValues = GetStaticMethod(typeof(TypeUtilities), "EnumeratePropertyValues", typeof(ScriptEngine), typeof(object));
 			TypeUtilities_Add = GetStaticMethod(typeof(TypeUtilities), "Add", typeof(object), typeof(object));
 			TypeUtilities_IsPrimitiveOrObject = GetStaticMethod(typeof(TypeUtilities), "IsPrimitiveOrObject", typeof(object));
 			TypeUtilities_VerifyThisObject = GetStaticMethod(typeof(TypeUtilities), "VerifyThisObject", typeof(ScriptEngine), typeof(object), typeof(string));
-
-			ObjectInstance_Delete = GetInstanceMethod(typeof(ObjectInstance), "Delete", typeof(string), typeof(bool));
-			ObjectInstance_DefineProperty = GetInstanceMethod(typeof(ObjectInstance), "DefineProperty", typeof(string), typeof(PropertyDescriptor), typeof(bool));
-			ObjectInstance_HasProperty = GetInstanceMethod(typeof(ObjectInstance), "HasProperty", typeof(string));
-			ObjectInstance_GetPropertyValue_String = GetInstanceMethod(typeof(ObjectInstance), "GetPropertyValue", typeof(string));
-			ObjectInstance_GetPropertyValue_Int = GetInstanceMethod(typeof(ObjectInstance), "GetPropertyValue", typeof(uint));
-			ObjectInstance_SetPropertyValue_String = GetInstanceMethod(typeof(ObjectInstance), "SetPropertyValue", typeof(string), typeof(object), typeof(bool));
-			ObjectInstance_SetPropertyValue_Int = GetInstanceMethod(typeof(ObjectInstance), "SetPropertyValue", typeof(uint), typeof(object), typeof(bool));
-			ObjectInstance_SetPropertyValueIfExists = GetInstanceMethod(typeof(ObjectInstance), "SetPropertyValueIfExists", typeof(string), typeof(object), typeof(bool));
-			ObjectInstance_PropertyValues = GetField(typeof(ObjectInstance), "propertyValues");
-			ObjectInstance_InlineCacheKey = GetField(typeof(ObjectInstance), "InlineCacheKey");
-			ObjectInstance_InlineGetPropertyValue = GetInstanceMethod(typeof(ObjectInstance), "InlineGetPropertyValue",
-				new Type[] { typeof(string), typeof(int).MakeByRefType(), typeof(int).MakeByRefType() });
-			ObjectInstance_InlineSetPropertyValue = GetInstanceMethod(typeof(ObjectInstance), "InlineSetPropertyValue",
-				new Type[] { typeof(string), typeof(object), typeof(bool), typeof(int).MakeByRefType(), typeof(int).MakeByRefType() });
-			ObjectInstance_InlineSetPropertyValueIfExists = GetInstanceMethod(typeof(ObjectInstance), "InlineSetPropertyValueIfExists",
-				new Type[] { typeof(string), typeof(object), typeof(bool), typeof(int).MakeByRefType(), typeof(int).MakeByRefType() });
 			
-			FunctionInstance_HasInstance = GetInstanceMethod(typeof(FunctionInstance), "HasInstance", typeof(object));
-			FunctionInstance_ConstructLateBound = GetInstanceMethod(typeof(FunctionInstance), "ConstructLateBound", typeof(object[]));
-			FunctionInstance_CallLateBound = GetInstanceMethod(typeof(FunctionInstance), "CallLateBound", typeof(object), typeof(object[]));
-			FunctionInstance_InstancePrototype = GetInstanceMethod(typeof(FunctionInstance), "get_InstancePrototype");
+			FunctionInstance_HasInstance = GetInstanceMethod(typeof(FunctionInstance), "HasInstance", typeof(ScriptEngine),typeof(object));
+			FunctionInstance_InstancePrototype = GetInstanceMethod(typeof(FunctionInstance), "GetInstancePrototype",typeof(ScriptEngine));
 			
 			PrototypeLookup_RegExp = GetField(typeof(PrototypeLookup), "RegExp");
 			PrototypeLookup_Object = GetField(typeof(PrototypeLookup), "Object");
+			PrototypeLookup_Get = GetInstanceMethod(typeof(PrototypeLookup), "Get", typeof(System.Type));
+			
+			Object_HasProperty=GetStaticMethod(typeof(Prototype),"HasProperty",typeof(ScriptEngine),typeof(object),typeof(string));
+			Object_GetPropertyValue=GetStaticMethod(typeof(Prototype),"GetPropertyValue",typeof(ScriptEngine),typeof(object),typeof(string));
+			Object_SetPropertyValue=GetStaticMethod(typeof(Prototype),"SetPropertyValue",typeof(ScriptEngine),typeof(object),typeof(string),typeof(object));
+			
+			Prototype_GetProperty=GetInstanceMethod(typeof(Prototype),"GetProperty",typeof(string));
+			
 			Global_Eval = GetStaticMethod(typeof(Window), "Eval", typeof(ScriptEngine), typeof(object));
 
 			String_Constructor_Char_Int = GetConstructor(typeof(string), typeof(char), typeof(int));
@@ -188,7 +170,7 @@ namespace Nitrassic
 			ConcatenatedString_ToString = GetInstanceMethod(typeof(ConcatenatedString), "ToString");
 
 			JavaScriptException_Constructor_Error = GetConstructor(typeof(JavaScriptException), typeof(ScriptEngine), typeof(string), typeof(string), typeof(int), typeof(string), typeof(string));
-			JavaScriptException_Constructor_Object = GetConstructor(typeof(JavaScriptException), typeof(object), typeof(int), typeof(string), typeof(string));
+			JavaScriptException_Constructor_Object = GetConstructor(typeof(JavaScriptException), typeof(ScriptEngine), typeof(object), typeof(int), typeof(string), typeof(string));
 			IEnumerable_GetEnumerator = GetInstanceMethod(typeof(IEnumerable<string>), "GetEnumerator");
 			IEnumerator_MoveNext = GetInstanceMethod(typeof(System.Collections.IEnumerator), "MoveNext");
 			IEnumerator_Current = GetInstanceMethod(typeof(IEnumerator<string>), "get_Current");
@@ -208,9 +190,8 @@ namespace Nitrassic
 			PropertyDescriptor_Constructor3 = GetConstructor(typeof(PropertyDescriptor), typeof(FunctionInstance), typeof(FunctionInstance), typeof(Library.PropertyAttributes));
 			Decimal_Constructor_Double = GetConstructor(typeof(decimal), typeof(double));
 
-			MethodLookup_Load = GetStaticMethod(typeof(MethodLookup), "Load", typeof(long));
+			MethodLookup_Load = GetStaticMethod(typeof(MethodLookup), "LoadGenerator", typeof(long));
 			Decimal_ToDouble = GetStaticMethod(typeof(decimal), "ToDouble", typeof(decimal));
-			BinderUtilities_ResolveOverloads = GetStaticMethod(typeof(BinderUtilities), "ResolveOverloads", typeof(RuntimeMethodHandle[]), typeof(ScriptEngine), typeof(object), typeof(object[]));
 			Convert_ToInt32_Double = GetStaticMethod(typeof(Convert), "ToInt32", typeof(double));
 			
 			Undefined_Value = GetField(typeof(Undefined), "Value");
@@ -240,22 +221,7 @@ namespace Nitrassic
 			}
 			if (text.Length > 0)
 				throw new InvalidOperationException("The following members need to be public: " + Environment.NewLine + text.ToString());
-
-			// For ease of debugging, all runtime calls should have the DebuggerHidden
-			// attribute.
-			//text.Clear();
-			//foreach (var reflectionField in GetMembers())
-			//{
-			//	var methodBase = reflectionField.MemberInfo as MethodBase;
-			//	if (methodBase != null && Attribute.GetCustomAttribute(methodBase, typeof(System.Diagnostics.DebuggerHiddenAttribute)) == null)
-			//	{
-			//		text.Append(methodBase.DeclaringType.ToString());
-			//		text.Append("/");
-			//		text.AppendLine(methodBase.ToString());
-			//	}
-			//}
-			//if (text.Length > 0)
-			//	throw new InvalidOperationException("The following methods do not have [DebuggerHidden]: " + Environment.NewLine + text.ToString());
+			
 #endif
 		}
 

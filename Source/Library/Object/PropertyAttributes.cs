@@ -47,11 +47,6 @@ namespace Nitrassic.Library
 		/// <summary>
 		/// Indicates the property is an accessor property (i.e. it has a getter or a setter).
 		/// </summary>
-		IsAccessorProperty = 8,
-
-		/// <summary>
-		/// Indicates the property is the "magic" length property (only found on arrays).
-		/// </summary>
-		IsLengthProperty = 16,
+		IsAccessorProperty = 8
 	}
 }

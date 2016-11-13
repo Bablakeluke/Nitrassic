@@ -32,6 +32,22 @@ namespace Nitrassic.Compiler
 		{
 			get { return this.Name; }
 		}
+		
+        // Contextual keywords.
+        public readonly static IdentifierToken Of = new IdentifierToken("of");
+		
+		/// <summary>
+        /// Creates a new identifier token.
+        /// </summary>
+        /// <param name="name"> The name of the identifer. </param>
+        /// <returns> A new IdentifierToken instance. </returns>
+        public static IdentifierToken Create(string name)
+        {
+            if (name == "of")
+                return Of;
+            return new IdentifierToken(name);
+		}
+		
 	}
 
 }

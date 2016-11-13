@@ -109,14 +109,7 @@ namespace Nitrassic.Compiler
 				GenerateDelete(generator, optimizationInfo);
 				return;
 			}
-
-			// If a return value is not expected, generate only the side-effects.
-			/*if (optimizationInfo.SuppressReturnValue == true)
-			{
-				this.GenerateSideEffects(generator, optimizationInfo);
-				return;
-			}*/
-
+			
 			// Special-case the typeof operator.
 			if (this.OperatorType == OperatorType.Typeof)
 			{
@@ -126,7 +119,14 @@ namespace Nitrassic.Compiler
 
 			// Load the operand onto the stack.
 			this.Operand.GenerateCode(generator, optimizationInfo);
-
+			
+			// If we're not using the return value, pop and quit.
+			if(optimizationInfo.RootExpression==this){
+				// Pop it and quit.
+				generator.Pop();
+				return;
+			}
+			
 			// Convert the operand to the correct type.
 			switch (this.OperatorType)
 			{
@@ -180,13 +180,7 @@ namespace Nitrassic.Compiler
 		/// <param name="optimizationInfo"> Information about any optimizations that should be performed. </param>
 		private void GenerateTypeof(ILGenerator generator, OptimizationInfo optimizationInfo)
 		{
-			// If a return value is not expected, generate only the side-effects.
-			/*if (optimizationInfo.SuppressReturnValue == true)
-			{
-				this.GenerateSideEffects(generator, optimizationInfo);
-				return;
-			}*/
-
+			
 			if (this.Operand is NameExpression)
 			{
 				// Unresolvable references must return "undefined" rather than throw an error.
@@ -197,12 +191,19 @@ namespace Nitrassic.Compiler
 				// Emit code for resolving the value of the operand.
 				this.Operand.GenerateCode(generator, optimizationInfo);
 			}
-
+			
+			if(optimizationInfo.RootExpression==this){
+				// Pop it and quit.
+				generator.Pop();
+				return;
+			}
+			
 			// Convert to System.Object.
 			EmitConversion.ToAny(generator, this.Operand.GetResultType(optimizationInfo));
 
 			// Call TypeUtilities.TypeOf(operand).
 			generator.Call(ReflectionHelpers.TypeUtilities_TypeOf);
+			
 		}
 
 		/// <summary>

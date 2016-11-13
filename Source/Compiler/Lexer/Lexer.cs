@@ -25,6 +25,11 @@ namespace Nitrassic.Compiler
 		/// Indicates the next token can be an operator.
 		/// </summary>
 		Operator,
+		
+        /// <summary>
+        /// Indicates the next token is the continuation of a template literal.
+        /// </summary>
+        TemplateContinuation,
 	}
 
 	/// <summary>
@@ -99,17 +104,25 @@ namespace Nitrassic.Compiler
 		/// </summary>
 		public bool StrictMode;
 		
+        /// <summary>
+        /// Gets or sets a string builder that will be appended with characters as they are read
+        /// from the input stream.
+        /// </summary>
+        public StringBuilder InputCaptureStringBuilder;
+
 		/// <summary>
 		/// Reads the next character from the input stream.
 		/// </summary>
 		/// <returns> The character that was read, or <c>-1</c> if the end of the input stream has
 		/// been reached. </returns>
 		private int ReadNextChar()
-		{
-			this.columnNumber++;
-			int c = this.reader.Read();
-			return c;
-		}
+        {
+            this.columnNumber++;
+            int c = this.reader.Read();
+            if (this.InputCaptureStringBuilder != null && c >= 0)
+                this.InputCaptureStringBuilder.Append((char)c);
+            return c;
+        }
 
 		// Needed to disambiguate regular expressions.
 		private Token lastSignificantToken;
@@ -251,7 +264,7 @@ namespace Nitrassic.Compiler
 			name.Length=0;
 			
 			// Check if the identifier is actually a keyword, boolean literal, or null literal.
-			return KeywordToken.FromString(result, this.engine.CompatibilityMode, this.StrictMode);
+			return KeywordToken.FromString(result, this.StrictMode);
 		}
 
 		/// <summary>
@@ -378,22 +391,39 @@ namespace Nitrassic.Compiler
 		/// </summary>
 		/// <param name="firstChar"> The first character of the string literal. </param>
 		/// <returns> A string literal. </returns>
-		private Token ReadStringLiteral(int firstChar)
+		internal Token ReadStringLiteral(int firstChar)
 		{
 			System.Diagnostics.Debug.Assert(firstChar == '\'' || firstChar == '"');
 			var contents = Builder;
 			int lineTerminatorCount = 0;
 			int escapeSequenceCount = 0;
+			
+            // In order to support tagged template literals properly, we need to capture the raw
+            // text, including escape sequences.
+            StringBuilder previousInputCapture = null;
+            if (firstChar == '`')
+            {
+                previousInputCapture = this.InputCaptureStringBuilder;
+                this.InputCaptureStringBuilder = new StringBuilder();
+            }
+			
+			int c;
 			while (true)
 			{
-				int c = ReadNextChar();
+				c = ReadNextChar();
 				if (c == firstChar)
 					break;
 				if (c == -1)
 					throw new JavaScriptException(this.engine, "SyntaxError", "Unexpected end of input in string literal.", this.lineNumber, this.Source.Path);
 				if (IsLineTerminator(c))
-					throw new JavaScriptException(this.engine, "SyntaxError", "Unexpected line terminator in string literal.", this.lineNumber, this.Source.Path);
-				if (c == '\\')
+                {
+                    // Line terminators are only allowed in template literals.
+                    if (firstChar != '`')
+                        throw new JavaScriptException(this.engine, "SyntaxError", "Unexpected line terminator in string literal.", this.lineNumber, this.Source.Path);
+                    ReadLineTerminator(c);
+                    contents.Append('\n');
+                }
+                else if (c == '\\')
 				{
 					// Escape sequence or line continuation.
 					c = ReadNextChar();
@@ -456,7 +486,7 @@ namespace Nitrassic.Compiler
 								// Null character or octal escape sequence.
 								c = this.reader.Peek();
 								if (c >= '0' && c <= '9')
-									contents.Append(ReadOctalEscapeSequence(0));
+									contents.Append(ReadOctalEscapeSequence(firstChar, 0));
 								else
 									contents.Append((char)0);
 								break;
@@ -468,7 +498,7 @@ namespace Nitrassic.Compiler
 							case '6':
 							case '7':
 								// Octal escape sequence.
-								contents.Append(ReadOctalEscapeSequence(c - '0'));
+								contents.Append(ReadOctalEscapeSequence(firstChar, c - '0'));
 								break;
 							case '8':
 							case '9':
@@ -480,6 +510,21 @@ namespace Nitrassic.Compiler
 						escapeSequenceCount ++;
 					}
 				}
+				else if (c == '$' && firstChar == '`')
+                {
+                    // This is a template literal substitution if the next character is '{'
+                    if (this.reader.Peek() == '{')
+                    {
+                        // Yes, this is a substitution!
+                        ReadNextChar();
+                        break;
+                    }
+                    else
+                    {
+                        // Not a substitution.
+                        contents.Append((char)c);
+                    }
+                }
 				else
 				{
 					contents.Append((char)c);
@@ -487,6 +532,18 @@ namespace Nitrassic.Compiler
 			}
 			string result=contents.ToString();
 			contents.Length=0;
+			
+            // Template literals return a different type of token.
+            if (firstChar == '`')
+            {
+                var rawText = this.InputCaptureStringBuilder.ToString(0, this.InputCaptureStringBuilder.Length - (c == '$' ? 2 : 1));
+                this.InputCaptureStringBuilder = previousInputCapture;
+                if (this.InputCaptureStringBuilder != null)
+                    this.InputCaptureStringBuilder.Append(previousInputCapture.ToString());
+                return new TemplateLiteralToken(result, rawText, c == '$');
+            }
+			
+			// Return a regular string literal token.
 			return new StringLiteralToken(result, escapeSequenceCount, lineTerminatorCount);
 		}
 		
@@ -519,14 +576,19 @@ namespace Nitrassic.Compiler
 		/// <summary>
 		/// Reads an octal number turns it into a single-byte character.
 		/// </summary>
-		/// <param name="firstDigit"> The value of the first digit. </param>
+		/// <param name="stringDelimiter"> The first character delimiting the string literal. </param>
+        /// <param name="firstDigit"> The value of the first digit. </param>
 		/// <returns> The character corresponding to the escape sequence. </returns>
-		private char ReadOctalEscapeSequence(int firstDigit)
+		private char ReadOctalEscapeSequence(int stringDelimiter, int firstDigit)
 		{
 			// Octal escape sequences are only supported in ECMAScript 3 compatibility mode.
 			if (this.StrictMode)
 				throw new JavaScriptException(this.engine, "SyntaxError", "Octal escape sequences are not allowed in strict mode.", this.lineNumber, this.Source.Path);
-
+			
+			// Octal escape sequences are not allowed in template strings.
+			if (stringDelimiter == '`')
+				throw new JavaScriptException(this.engine,  "SyntaxError", "Octal escape sequences are not allowed in template strings.", this.lineNumber, this.Source.Path);
+			
 			int numericValue = firstDigit;
 			for (int i = 0; i < 2; i++)
 			{

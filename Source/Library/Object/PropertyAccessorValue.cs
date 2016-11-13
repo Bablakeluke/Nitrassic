@@ -49,7 +49,7 @@ namespace Nitrassic.Library
 		{
 			if (this.getter == null)
 				return Undefined.Value;
-			return this.getter.CallLateBound(thisObj);
+			return this.getter.CallLateBound(thisObj.Engine,thisObj);
 		}
 
 		/// <summary>
@@ -61,7 +61,7 @@ namespace Nitrassic.Library
 		{
 			if (this.setter == null)
 				return;
-			this.setter.CallLateBound(thisObj, value);
+			this.setter.CallLateBound(thisObj.Engine,thisObj, value);
 		}
 	}
 

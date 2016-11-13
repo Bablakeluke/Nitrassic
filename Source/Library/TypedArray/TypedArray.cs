@@ -84,10 +84,10 @@ namespace Nitrassic.Library
 			
 			if(arr!=null)
 			{
-				return (int)arr.Length;
+				return Nitrassic.Library.Array.get_Length(null,arr);
 			}
 			
-			throw new NotImplementedException("TypedArrays can only be constructed from arrays at the moment.");
+			throw new NotImplementedException("TypedArrays can only be constructed from arrays at the moment (tried to use "+iterableObj+").");
 		}
 		
 		/// <summary>Adds all values in the given array into this array.</summary>
@@ -97,7 +97,7 @@ namespace Nitrassic.Library
 			
 			if(arr==null)
 			{
-				throw new NotImplementedException("TypedArrays can only be constructed from arrays at the moment.");
+				throw new NotImplementedException("TypedArrays can only be constructed from arrays at the moment (tried to use "+iterableObj+").");
 			}
 			
 			int index=0;
@@ -212,26 +212,31 @@ namespace Nitrassic.Library
 		//	// Delegate to the base class.
 		//	return base.GetOwnPropertyDescriptor(index);
 		//}
-
-		///// <summary>
-		///// Gets an enumerable list of every property name and value associated with this object.
-		///// </summary>
-		//public override IEnumerable<PropertyNameAndValue> Properties
-		//{
-		//	get
-		//	{
-		//		// Enumerate array indices.
-		//		for (int i = 0; i < this.value.Length; i++)
-		//			yield return new PropertyNameAndValue(i.ToString(), this.value[i].ToString(), PropertyAttributes.Enumerable);
-
-		//		// Delegate to the base implementation.
-		//		foreach (var nameAndValue in base.Properties)
-		//			yield return nameAndValue;
-		//	}
-		//}
-
-
-
+	
+		/// <summary>
+		/// Gets an enumerable list of every property name and value associated with this object.
+		/// </summary>
+		[JSProperties(Hidden=true)]
+		public IEnumerator<object> PropertyValues{
+			get{
+				// Enumerate array values.
+				for (int i = 0; i < ByteLength; i+=BYTES_PER_ELEMENT)
+					yield return Get(i);
+			}
+		}
+		
+		/// <summary>
+		/// Gets an enumerable list of every property name and value associated with this object.
+		/// </summary>
+		[JSProperties(Hidden=true)]
+		public IEnumerator<string> Properties{
+			get{
+				// Enumerate array indices.
+				for (int i = 0; i < Length; i++)
+					yield return i.ToString();
+			}
+		}
+		
 		//	 JAVASCRIPT FUNCTIONS
 		//_________________________________________________________________________________________
 
@@ -254,7 +259,7 @@ namespace Nitrassic.Library
 			
 			throw new NotImplementedException();
 		}
-
+		
 		/// <summary>
 		/// Called when the typed array object is invoked like a function, e.g. Int8Array().
 		/// Throws an error.

@@ -13,7 +13,7 @@ namespace Nitrassic.Library
 	{
 		
 		/// <summary>The host function. That's the one being called.</summary>
-		public UserDefinedFunction Host;
+		internal FunctionMethodGenerator Host;
 		/// <summary>The values being hoisted into the new scope.</summary>
 		public object[] HoistValues;
 		
@@ -27,9 +27,8 @@ namespace Nitrassic.Library
 		/// <param name="body"> A delegate which represents the body of the function. </param>
 		/// <param name="strictMode"> <c>true</c> if the function body is strict mode; <c>false</c> otherwise. </param>
 		public HoistFunctionReference(ScriptEngine engine,long methodID,object[] hoistValues)
-			: base(engine.Prototypes.FunctionPrototype)
 		{
-			Host=MethodLookup.Load(methodID);
+			Host=MethodLookup.LoadGenerator(methodID);
 			HoistValues=hoistValues;
 		}
 		
@@ -43,21 +42,27 @@ namespace Nitrassic.Library
 		/// <param name="thisObj"> The value of the "this" keyword within the function. </param>
 		/// <param name="argumentValues"> An array of argument values to pass to the function. </param>
 		/// <returns> The value that was returned from the function. </returns>
-		public override object CallLateBound(object thisObj, params object[] argumentValues)
+		public override object CallLateBound(ScriptEngine engine,params object[] thisAndArgumentValues)
 		{
 			// Call the function, passing the hoisted values too.
 			int hoisted=HoistValues.Length;
-			int argCount=argumentValues.Length;
+			int argCount=thisAndArgumentValues.Length;
 			
 			object[] set=new object[hoisted + argCount];
 			
+			// Transfer 'this':
+			set[0]=thisAndArgumentValues;
+			
 			// Copy hoist values in:
-			System.Array.Copy(HoistValues,0,set,0,hoisted);
+			System.Array.Copy(HoistValues,0,set,1,hoisted);
 			
 			// Copy arg values in:
-			System.Array.Copy(argumentValues,0,set,hoisted,argCount);
+			System.Array.Copy(thisAndArgumentValues,1,set,hoisted+1,argCount-1);
 			
-			return Host.body.Invoke(thisObj, set);
+			// Need to find the correct compiled version of the host:
+			UserDefinedFunction udf=Host.GetCompiled(engine,set);
+			
+			return udf.body.Invoke(null, set);
 		}
 		
 		/// <summary>

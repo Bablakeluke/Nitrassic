@@ -5,14 +5,14 @@ using Nitrassic.Library;
 namespace Nitrassic.Compiler
 {
 	
-	internal delegate void OnLJCallback(ILGenerator g, ILLabel l);
+	public delegate void OnLJCallback(ILGenerator g, ILLabel l);
 	
-	internal delegate void CodeGenDelegate(ILGenerator generator, OptimizationInfo optimizationInfo);
+	public delegate void CodeGenDelegate(ILGenerator generator, OptimizationInfo optimizationInfo);
 
 	/// <summary>
 	/// Represents information about one or more code generation optimizations.
 	/// </summary>
-	internal class OptimizationInfo
+	public class OptimizationInfo
 	{
 		/// <summary>
 		/// Creates a new OptimizationInfo instance.
@@ -58,6 +58,17 @@ namespace Nitrassic.Compiler
 		/// </summary>
 		public string FunctionName;
 		
+		/// <summary>
+		/// Set to the root node of the current expression.
+		/// Used to indicate if the return value is in use or not.
+		/// </summary>
+		internal Expression RootExpression;
+		
+		/// <summary>
+		/// Method return type.
+		/// </summary>
+		public Type ReturnType;
+		
 		/*
 		/// <summary>
 		/// Emits a sequence point, and sets the SourceSpan property.
@@ -88,12 +99,17 @@ namespace Nitrassic.Compiler
 		/// This list is maintained so that the garbage collector does not prematurely collect
 		/// the generated code for the nested functions.
 		/// </summary>
-		public IList<UserDefinedFunction> NestedFunctions;
+		public IList<FunctionMethodGenerator> NestedFunctions;
 		
 		/// <summary>
 		/// True if a FunctionCallExpression is actually being used by new.
 		/// </summary>
 		public bool IsConstructCall;
+
+		/// <summary>
+		/// True if the whole function being compiled is being used by new.
+		/// </summary>
+		public bool IsConstructor;
 
 		//	 FUNCTION OPTIMIZATION
 		//_________________________________________________________________________________________
@@ -195,7 +211,17 @@ namespace Nitrassic.Compiler
 		}
 
 		private Stack<BreakOrContinueInfo> breakOrContinueStack = new Stack<BreakOrContinueInfo>();
-
+		
+		/// <summary>Throws a syntax error at the current function.</summary>
+		public void SyntaxError(string message){
+			throw new JavaScriptException(Engine, "SyntaxError", message, 1, this.Source.Path, this.FunctionName);
+		}
+		
+		/// <summary>Throws a type error at the current function.</summary>
+		public void TypeError(string message){
+			throw new JavaScriptException(Engine, "TypeError", message, 1, this.Source.Path, this.FunctionName);
+		}
+		
 		/// <summary>
 		/// Pushes information about break or continue targets to a stack.
 		/// </summary>

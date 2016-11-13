@@ -7,7 +7,7 @@ namespace Nitrassic.Library
 	/// <summary>
 	/// Represents an instance of the RegExp object.
 	/// </summary>
-	public partial class RegExp : ObjectInstance
+	public partial class RegExp
 	{
 		private Regex value;
 		private bool globalSearch;
@@ -27,30 +27,20 @@ namespace Nitrassic.Library
 		/// i (ignore case)
 		/// m (multiline search)</param>
 		internal RegExp(ScriptEngine engine, string pattern, string flags)
-			: base(engine.Prototypes.RegExpPrototype)
 		{
 			if (pattern == null)
 				throw new ArgumentNullException("pattern");
 
 			try
 			{
-				this.value = new Regex(pattern, ParseFlags(flags));
+				this.value = new Regex(pattern, ParseFlags(engine,flags));
 			}
 			catch (ArgumentException ex)
 			{
 				// Wrap the exception so that it can be caught within javascript code.
-				throw new JavaScriptException(this.Engine, "SyntaxError", "Invalid regular expression - " + ex.Message);
+				throw new JavaScriptException(engine, "SyntaxError", "Invalid regular expression - " + ex.Message);
 			}
-
-			// Initialize the javascript properties.
-			var properties = new List<PropertyNameAndValue>(6);
-			properties.Add(new PropertyNameAndValue("source", pattern, PropertyAttributes.Sealed));
-			properties.Add(new PropertyNameAndValue("flags", this.Flags, PropertyAttributes.Sealed));
-			properties.Add(new PropertyNameAndValue("global", this.Global, PropertyAttributes.Sealed));
-			properties.Add(new PropertyNameAndValue("multiline", this.Multiline, PropertyAttributes.Sealed));
-			properties.Add(new PropertyNameAndValue("ignoreCase", this.IgnoreCase, PropertyAttributes.Sealed));
-			properties.Add(new PropertyNameAndValue("lastIndex", 0.0, PropertyAttributes.Writable));
-			FastSetProperties(properties);
+			
 		}
 
 		/// <summary>
@@ -59,21 +49,12 @@ namespace Nitrassic.Library
 		/// </summary>
 		/// <param name="prototype"> The next object in the prototype chain. </param>
 		/// <param name="existingInstance"> The instance to copy the pattern and flags from. </param>
-		internal RegExp(ScriptEngine engine, RegExp existingInstance)
-			: base(engine.Prototypes.RegExpPrototype)
+		internal RegExp(RegExp existingInstance)
 		{
 			if (existingInstance == null)
 				throw new ArgumentNullException("existingInstance");
 			this.value = existingInstance.value;
 			this.globalSearch = existingInstance.globalSearch;
-
-			// Initialize the javascript properties.
-			this.FastSetProperty("source", existingInstance.Source, PropertyAttributes.Sealed);
-			this.FastSetProperty("flags", existingInstance.Flags, PropertyAttributes.Sealed);
-			this.FastSetProperty("global", existingInstance.Global, PropertyAttributes.Sealed);
-			this.FastSetProperty("multiline", existingInstance.Multiline, PropertyAttributes.Sealed);
-			this.FastSetProperty("ignoreCase", existingInstance.IgnoreCase, PropertyAttributes.Sealed);
-			this.FastSetProperty("lastIndex", 0.0, PropertyAttributes.Writable);
 		}
 
 
@@ -154,11 +135,7 @@ namespace Nitrassic.Library
 		/// <summary>
 		/// Gets the character position to start searching when the global flag is set.
 		/// </summary>
-		public int LastIndex
-		{
-			get { return TypeConverter.ToInteger(this["lastIndex"]); }
-			set { this["lastIndex"] = value; }
-		}
+		public int LastIndex;
 
 
 
@@ -194,7 +171,7 @@ namespace Nitrassic.Library
 		/// property contains the position of the matched substring within the complete searched
 		/// string. The lastIndex property contains the position following the last character in
 		/// the match. </returns>
-		public object Exec(string input)
+		public object Exec(ScriptEngine engine,string input)
 		{
 			// Perform the regular expression matching.
 			var match = this.value.Match(input, CalculateStartPosition(input));
@@ -221,7 +198,7 @@ namespace Nitrassic.Library
 				if (group.Captures.Count == 0)
 					array[i] = Undefined.Value;
 			}
-			var result = Nitrassic.Library.Array.New(Engine,array);
+			var result = Nitrassic.Library.Array.New(engine,array);
 			result["index"] = match.Index;
 			result["input"] = input;
 
@@ -245,11 +222,11 @@ namespace Nitrassic.Library
 		/// </summary>
 		/// <param name="input"> The string on which to perform the search. </param>
 		/// <returns> An array containing the matched strings. </returns>
-		public object Match(string input)
+		public object Match(ScriptEngine engine,string input)
 		{
 			// If the global flag is not set, returns a single match.
 			if (this.Global == false)
-				return Exec(input);
+				return Exec(engine,input);
 
 			// Otherwise, find all matches.
 			var matches = this.value.Matches(input);
@@ -260,7 +237,7 @@ namespace Nitrassic.Library
 			object[] matchValues = new object[matches.Count];
 			for (int i = 0; i < matches.Count; i++)
 				matchValues[i] = matches[i].Value;
-			return Nitrassic.Library.Array.New(Engine,matchValues);
+			return Nitrassic.Library.Array.New(engine,matchValues);
 		}
 
 		/// <summary>
@@ -394,9 +371,9 @@ namespace Nitrassic.Library
 			return match.Index;
 		}
 		
-		public Nitrassic.Library.Array Split(string input)
+		public Nitrassic.Library.Array Split(ScriptEngine engine,string input)
 		{
-			return Split(input, uint.MaxValue);
+			return Split(engine,input, uint.MaxValue);
 		}
 		
 		/// <summary>
@@ -405,11 +382,11 @@ namespace Nitrassic.Library
 		/// <param name="input"> The string to split. </param>
 		/// <param name="limit"> The maximum number of array items to return.  Defaults to unlimited. </param>
 		/// <returns> An array containing the split strings. </returns>
-		public Nitrassic.Library.Array Split(string input, uint limit)
+		public Nitrassic.Library.Array Split(ScriptEngine engine,string input, uint limit)
 		{
 			// Return an empty array if limit = 0.
 			if (limit == 0)
-				return Nitrassic.Library.Array.New(Engine,new object[0]);
+				return Nitrassic.Library.Array.New(engine,new object[0]);
 
 			// Find the first match.
 			Match match = this.value.Match(input, 0);
@@ -431,7 +408,7 @@ namespace Nitrassic.Library
 				// Add the match results to the array.
 				results.Add(input.Substring(startIndex, match.Index - startIndex));
 				if (results.Count >= limit)
-					return Nitrassic.Library.Array.New(Engine,results.ToArray());
+					return Nitrassic.Library.Array.New(engine,results.ToArray());
 				startIndex = match.Index + match.Length;
 				for (int i = 1; i < match.Groups.Count; i++)
 				{
@@ -441,7 +418,7 @@ namespace Nitrassic.Library
 					else
 						results.Add(match.Groups[i].Value);
 					if (results.Count >= limit)
-						return Nitrassic.Library.Array.New(Engine,results.ToArray());
+						return Nitrassic.Library.Array.New(engine,results.ToArray());
 				}
 
 				// Record the last match.
@@ -452,7 +429,7 @@ namespace Nitrassic.Library
 			}
 			results.Add(input.Substring(startIndex, input.Length - startIndex));
 			
-			return Nitrassic.Library.Array.New(Engine,results.ToArray());
+			return Nitrassic.Library.Array.New(engine,results.ToArray());
 		}
 
 		/// <summary>
@@ -477,7 +454,7 @@ namespace Nitrassic.Library
 		/// i (ignore case)
 		/// m (multiline search)</param>
 		/// <returns> RegexOptions flags that correspond to the given flags. </returns>
-		private RegexOptions ParseFlags(string flags)
+		private RegexOptions ParseFlags(ScriptEngine engine,string flags)
 		{
 			var options = RegexOptions.ECMAScript;
 			this.globalSearch = false;
@@ -490,24 +467,24 @@ namespace Nitrassic.Library
 					if (flag == 'g')
 					{
 						if (this.globalSearch == true)
-							throw new JavaScriptException(this.Engine, "SyntaxError", "The 'g' flag cannot be specified twice");
+							throw new JavaScriptException(engine, "SyntaxError", "The 'g' flag cannot be specified twice");
 						this.globalSearch = true;
 					}
 					else if (flag == 'i')
 					{
 						if ((options & RegexOptions.IgnoreCase) == RegexOptions.IgnoreCase)
-							throw new JavaScriptException(this.Engine, "SyntaxError", "The 'i' flag cannot be specified twice");
+							throw new JavaScriptException(engine, "SyntaxError", "The 'i' flag cannot be specified twice");
 						options |= RegexOptions.IgnoreCase;
 					}
 					else if (flag == 'm')
 					{
 						if ((options & RegexOptions.Multiline) == RegexOptions.Multiline)
-							throw new JavaScriptException(this.Engine, "SyntaxError", "The 'm' flag cannot be specified twice");
+							throw new JavaScriptException(engine, "SyntaxError", "The 'm' flag cannot be specified twice");
 						options |= RegexOptions.Multiline;
 					}
 					else
 					{
-						throw new JavaScriptException(this.Engine, "SyntaxError", string.Format("Unknown flag '{0}'", flag));
+						throw new JavaScriptException(engine, "SyntaxError", string.Format("Unknown flag '{0}'", flag));
 					}
 				}
 			}
@@ -526,13 +503,13 @@ namespace Nitrassic.Library
 		/// g (global search for all occurrences of pattern)
 		/// i (ignore case)
 		/// m (multiline search)</param>
-		public static RegExp OnCall(ScriptEngine engine, object patternOrRegExp, string flags)
+		public static RegExp OnCall(ScriptEngine engine,object patternOrRegExp, string flags)
 		{
 			if (patternOrRegExp is RegExp)
 			{
 				// RegExp(/abc/) or RegExp(/abc/, "g")
 				if (flags != null)
-					return new RegExp(engine, ((RegExp)patternOrRegExp).Source, flags);
+					return new RegExp(engine,((RegExp)patternOrRegExp).Source, flags);
 				return (RegExp)patternOrRegExp;
 			}
 			else
@@ -541,7 +518,7 @@ namespace Nitrassic.Library
 				var pattern = string.Empty;
 				if (TypeUtilities.IsUndefined(patternOrRegExp) == false)
 					pattern = TypeConverter.ToString(patternOrRegExp);
-				return new RegExp(engine, pattern, flags);
+				return new RegExp(engine,pattern, flags);
 			}
 		}
 
@@ -555,14 +532,14 @@ namespace Nitrassic.Library
 		/// g (global search for all occurrences of pattern)
 		/// i (ignore case)
 		/// m (multiline search)</param>
-		public static RegExp OnConstruct(ScriptEngine engine, object patternOrRegExp, string flags)
+		public static RegExp OnConstruct(ScriptEngine engine,object patternOrRegExp, string flags)
 		{
 			if (patternOrRegExp is RegExp)
 			{
 				// new RegExp(regExp, flags)
 				if (flags != null)
-					return new RegExp(engine, ((RegExp)patternOrRegExp).Source, flags);
-				return new RegExp(engine, (RegExp)patternOrRegExp);
+					return new RegExp(engine,((RegExp)patternOrRegExp).Source, flags);
+				return new RegExp((RegExp)patternOrRegExp);
 			}
 			else
 			{
@@ -570,7 +547,7 @@ namespace Nitrassic.Library
 				var pattern = string.Empty;
 				if (TypeUtilities.IsUndefined(patternOrRegExp) == false)
 					pattern = TypeConverter.ToString(patternOrRegExp);
-				return new RegExp(engine, pattern, flags);
+				return new RegExp(engine,pattern, flags);
 			}
 		}
 		

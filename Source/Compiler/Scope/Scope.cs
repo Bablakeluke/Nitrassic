@@ -40,6 +40,10 @@ namespace Nitrassic.Compiler
 		
 		public bool CanDeclareVariables;
 		
+		
+		/// <summary>Called before recompiling a function with different args.</summary>
+		public virtual void Reset(){}
+		
 		/// <summary>
 		/// Declares a variable or function in this scope.  This will be initialized with the value
 		/// of the given expression.
@@ -52,16 +56,18 @@ namespace Nitrassic.Compiler
 		/// <param name="deletable"> <c>true</c> if the variable can be deleted; <c>false</c>
 		/// otherwise.  Defaults to <c>true</c>. </param>
 		/// <returns> A reference to the variable that was declared. </returns>
-		internal abstract Variable DeclareVariable(string name,Type type,Expression valueAtTopOfScope);
+		internal abstract Variable AddVariable(string name,Type type,Expression valueAtTopOfScope);
 		
-		internal Variable DeclareVariable(string name)
+		internal abstract Variable GetVariable(string variableName);
+		
+		internal Variable AddVariable(string name)
 		{
-			return DeclareVariable(name,null,null);
+			return AddVariable(name,null,null);
 		}
 		
-		internal Variable DeclareVariable(string name, Type type){
+		internal Variable AddVariable(string name, Type type){
 			
-			return DeclareVariable(name,type,null);
+			return AddVariable(name,type,null);
 			
 		}
 		

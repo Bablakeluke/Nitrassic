@@ -6,25 +6,30 @@ namespace Nitrassic.Compiler
 	/// <summary>
 	/// Represents a generator of CIL bytes.
 	/// </summary>
-	internal class ReflectionEmitILGenerator : ILGenerator
+	public class ReflectionEmitILGenerator : ILGenerator
 	{
 		
 		private System.Reflection.Emit.ILGenerator generator;
+		private System.Reflection.Emit.MethodBuilder builder;
 
 		/// <summary>
 		/// Creates a new ReflectionEmitILGenerator instance.
 		/// </summary>
 		/// <param name="generator"> The ILGenerator that is used to output the IL. </param>
-		public ReflectionEmitILGenerator(ScriptEngine engine,System.Reflection.Emit.ILGenerator generator)
+		public ReflectionEmitILGenerator(ScriptEngine engine,System.Reflection.Emit.MethodBuilder builder)
 		{
-			if (generator == null)
-				throw new ArgumentNullException("generator");
-			this.generator = generator;
+			
+			this.generator=builder.GetILGenerator();
+			this.builder=builder;
 			Engine = engine;
 		}
 
-
-
+		public override System.Reflection.Emit.MethodBuilder Builder{
+			get{
+				return builder;
+			}
+		}
+		
 		//	 BUFFER MANAGEMENT
 		//_________________________________________________________________________________________
 
@@ -673,10 +678,46 @@ namespace Nitrassic.Compiler
 		}
 
 		/// <summary>
+		/// Pops a value from the stack, converts it to a signed byte, then pushes it back onto
+		/// the stack.
+		/// </summary>
+		public override void ConvertToInt8()
+		{
+			this.generator.Emit(OpCodes.Conv_I1);
+		}
+
+		/// <summary>
+		/// Pops a value from the stack, converts it to an unsigned byte, then pushes it back
+		/// onto the stack.
+		/// </summary>
+		public override void ConvertToUnsignedInt8()
+		{
+			this.generator.Emit(OpCodes.Conv_U1);
+		}
+		
+		/// <summary>
+		/// Pops a value from the stack, converts it to a signed short, then pushes it back onto
+		/// the stack.
+		/// </summary>
+		public override void ConvertToInt16()
+		{
+			this.generator.Emit(OpCodes.Conv_I2);
+		}
+
+		/// <summary>
+		/// Pops a value from the stack, converts it to an unsigned short, then pushes it back
+		/// onto the stack.
+		/// </summary>
+		public override void ConvertToUnsignedInt16()
+		{
+			this.generator.Emit(OpCodes.Conv_U2);
+		}
+		
+		/// <summary>
 		/// Pops a value from the stack, converts it to a signed integer, then pushes it back onto
 		/// the stack.
 		/// </summary>
-		public override void ConvertToInteger()
+		public override void ConvertToInt32()
 		{
 			this.generator.Emit(OpCodes.Conv_I4);
 		}
@@ -685,7 +726,7 @@ namespace Nitrassic.Compiler
 		/// Pops a value from the stack, converts it to an unsigned integer, then pushes it back
 		/// onto the stack.
 		/// </summary>
-		public override void ConvertToUnsignedInteger()
+		public override void ConvertToUnsignedInt32()
 		{
 			this.generator.Emit(OpCodes.Conv_U4);
 		}

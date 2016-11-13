@@ -7,7 +7,7 @@ namespace Nitrassic.Compiler
 	/// <summary>
 	/// Represents information useful for optimizing a method.
 	/// </summary>
-	internal class MethodOptimizationHints
+	public class MethodOptimizationHints
 	{
 		private Dictionary<string,bool> names = new Dictionary<string,bool>();
 		private bool cached, hasArguments, hasEval, hasNestedFunction, hasThis;

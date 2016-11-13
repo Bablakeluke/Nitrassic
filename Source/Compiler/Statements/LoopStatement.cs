@@ -84,12 +84,25 @@ namespace Nitrassic.Compiler
 		/// <param name="optimizationInfo"> Information about any optimizations that should be performed. </param>
 		public override void GenerateCode(ILGenerator generator, OptimizationInfo optimizationInfo)
 		{
+			
+			// Get the previous root - we'll be changing it:
+			Expression prevRoot=optimizationInfo.RootExpression;
+			
 			List<string> labels=optimizationInfo.Labels;
 			optimizationInfo.Labels=null;
 			
 			// Emit the initialization statement.
-			if (this.InitStatement != null)
-				this.InitStatement.GenerateCode(generator, optimizationInfo);
+			if (InitStatement != null){
+				
+				// Init isn't in use. Mark it as root:
+				InitStatement.SetRoot(optimizationInfo);
+				
+				InitStatement.GenerateCode(generator, optimizationInfo);
+				
+				// Restore root:
+				optimizationInfo.RootExpression=prevRoot;
+				
+			}
 			
 			var startOfLoop = generator.DefineLabelPosition();
 			var continueTarget = generator.CreateLabel();
@@ -120,32 +133,49 @@ namespace Nitrassic.Compiler
 			
 				if(ConditionStatement != null)
 				{
+					
 					Condition.GenerateCode(generator, optimizationInfo);
 					EmitConversion.ToBool(generator, Condition.GetResultType(optimizationInfo));
 					generator.BranchIfFalse(endOfLoop);
+					
 				}
 				
 			}
 			
 			// Emit the loop body.
 			optimizationInfo.PushBreakOrContinueInfo(labels, endOfLoop, continueTarget, false);
-			this.Body.GenerateCode(generator, optimizationInfo);
+			
+			// Mark the body as root:
+			Body.SetRoot(optimizationInfo);
+			
+			Body.GenerateCode(generator, optimizationInfo);
 			optimizationInfo.PopBreakOrContinueInfo();
 			
 			generator.DefineLabelPosition(continueTarget);
 			
 			// Increment the loop variable.
-			if (this.IncrementStatement != null)
-				this.IncrementStatement.GenerateCode(generator, optimizationInfo);
+			if (IncrementStatement != null){
+				
+				// Increment isn't in use. Mark it as root:
+				IncrementStatement.SetRoot(optimizationInfo);
+				
+				IncrementStatement.GenerateCode(generator, optimizationInfo);
+				
+			}
+			
+			// Restore root:
+			optimizationInfo.RootExpression=prevRoot;
 			
 			if(conditionAtEnd)
 			{
 				
 				if(ConditionStatement != null)
 				{
+					// Emit now:
 					Condition.GenerateCode(generator, optimizationInfo);
 					EmitConversion.ToBool(generator, Condition.GetResultType(optimizationInfo));
 					generator.BranchIfTrue(startOfLoop);
+					
 				}
 				
 			}else{

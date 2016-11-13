@@ -32,10 +32,6 @@ namespace Nitrassic.Compiler
 			Convert(generator, fromType, toType, optimizationInfo.Source.Path, optimizationInfo.FunctionName);
 		}
 		
-		#warning remove me!
-		public static void ToObject(ILGenerator generator, Type fromType, OptimizationInfo optimizationInfo)
-		{}
-		
 		/// <summary>
 		/// Pops the value on the stack, converts it to the given type, then pushes the result
 		/// onto the stack.
@@ -68,14 +64,23 @@ namespace Nitrassic.Compiler
 			else if(toType == typeof(bool))
 			{
 				ToBool(generator, fromType);
-			}
-			else if(toType == typeof(int))
-			{
-				ToInt32(generator, fromType);
-			}
-			else if(toType == typeof(uint))
-			{
-				ToUInt32(generator, fromType);
+			
+			}else if (toType==typeof(long)){
+				generator.ConvertToInt64();
+			}else if(toType==typeof(ulong)){
+				generator.ConvertToUnsignedInt64();
+			}else if(toType==typeof(int)){
+				generator.ConvertToInt32();
+			}else if(toType==typeof(uint)){
+				generator.ConvertToUnsignedInt32();
+			}else if(toType==typeof(short)){
+				generator.ConvertToInt16();
+			}else if(toType==typeof(ushort)){
+				generator.ConvertToUnsignedInt16();
+			}else if(toType==typeof(sbyte)){
+				generator.ConvertToInt8();
+			}else if(toType==typeof(byte)){
+				generator.ConvertToUnsignedInt8();
 			}
 			else if(toType == typeof(double))
 			{
@@ -150,13 +155,10 @@ namespace Nitrassic.Compiler
 				generator.LoadInt32(0);
 				generator.CompareGreaterThan();
 				
-			}else if(fromType == typeof(object) || fromType == typeof(Library.ObjectInstance)){
+			}else{
+				Console.WriteLine("CVTR "+fromType);
 				// Otherwise, fall back to calling TypeConverter.ToBoolean()
 				generator.Call(ReflectionHelpers.TypeConverter_ToBoolean);
-			}else{
-			
-				throw new NotImplementedException(string.Format("Unsupported primitive type: {0}", fromType));
-			
 			}
 			
 		}
@@ -203,7 +205,7 @@ namespace Nitrassic.Compiler
 				// Infinity -> -2147483648
 				// -Infinity -> -2147483648
 				// NaN -> -2147483648
-				generator.ConvertToInteger();
+				generator.ConvertToInt32();
 
 				// input = input & -((int)notNaN)
 				generator.LoadVariable(notNaN);
@@ -251,7 +253,7 @@ namespace Nitrassic.Compiler
 				
 			}else if(fromType == typeof(double)){
 				// Converting from a number produces the number mod 4294967296.  NaN produces 0.
-				generator.ConvertToUnsignedInteger();
+				generator.ConvertToUnsignedInt32();
 				
 			}else if(fromType == typeof(string) || fromType == typeof(ConcatenatedString) ||
 					fromType == typeof(object) || fromType == typeof(Library.ObjectInstance)){
@@ -277,7 +279,38 @@ namespace Nitrassic.Compiler
 		{
 			ToInt32(generator, fromType);
 		}
-
+		
+		/// <summary>Converts an integer numeric type to another numeric type.
+		/// Used to increase the accuracy, e.g. a byte to an int32.
+		/// </summary>
+		public static void ToNumber(ILGenerator generator, Type fromType, Type toType)
+		{
+			
+			if(fromType==toType){
+				// Nothing to do.
+				return;
+			}
+			
+			if (toType==typeof(long)){
+				generator.ConvertToInt64();
+			}else if(toType==typeof(ulong)){
+				generator.ConvertToUnsignedInt64();
+			}else if(toType==typeof(int)){
+				generator.ConvertToInt32();
+			}else if(toType==typeof(uint)){
+				generator.ConvertToUnsignedInt32();
+			}else if(toType==typeof(short)){
+				generator.ConvertToInt16();
+			}else if(toType==typeof(ushort)){
+				generator.ConvertToUnsignedInt16();
+			}else if(toType==typeof(sbyte)){
+				generator.ConvertToInt8();
+			}else if(toType==typeof(byte)){
+				generator.ConvertToUnsignedInt8();
+			}
+			
+		}
+		
 		/// <summary>
 		/// Pops the value on the stack, converts it to a double, then pushes the double result
 		/// onto the stack.
@@ -302,7 +335,10 @@ namespace Nitrassic.Compiler
 				// Converting from null produces 0.
 				generator.Pop();
 				generator.LoadDouble(0.0);
-				
+			}else if(fromType == typeof(Library.Date))
+			{
+				// Converting from a date produces the time in ms.
+				generator.Call(ReflectionHelpers.Date_ToNumber);
 			}
 			else if(fromType == typeof(bool))
 			{
@@ -310,13 +346,13 @@ namespace Nitrassic.Compiler
 				generator.ConvertToDouble();
 				
 			}
-			else if(fromType == typeof(int))
+			else if(fromType == typeof(int) || fromType==typeof(short) || fromType==typeof(sbyte) || fromType==typeof(long))
 			{
 				// Converting from int32 produces the same number.
 				generator.ConvertToDouble();
 				
 			}
-			else if(fromType == typeof(uint))
+			else if(fromType == typeof(uint) || fromType==typeof(ushort) || fromType==typeof(byte) || fromType==typeof(ulong))
 			{
 				// Converting from a number produces the following:
 				generator.ConvertUnsignedToDouble();
@@ -375,25 +411,18 @@ namespace Nitrassic.Compiler
 				generator.LoadString("false");
 				generator.DefineLabelPosition(endOfIf);
 				
-			}
-			else if(fromType == typeof(ConcatenatedString))
-			{
+			}else if(fromType == typeof(ConcatenatedString)){
 				generator.Call(ReflectionHelpers.ConcatenatedString_ToString);
 				
-			}
-			else if(fromType == typeof(int) || fromType == typeof(uint) || fromType == typeof(double) || 
-					fromType == typeof(object) || fromType == typeof(Library.ObjectInstance))
-			{
+			}else{
 					
 				// Otherwise, fall back to calling TypeConverter.ToString()
-				if (PrimitiveTypeUtilities.IsValueType(fromType))
+				if (PrimitiveTypeUtilities.IsValueType(fromType)){
 					generator.Box(fromType);
+				}
+				
 				generator.Call(ReflectionHelpers.TypeConverter_ToString);
-			
-			}
-			else
-			{
-				throw new NotImplementedException(string.Format("Unsupported primitive type: {0}", fromType));
+				
 			}
 			
 		}
@@ -507,7 +536,7 @@ namespace Nitrassic.Compiler
 			else
 			{
 			
-				throw new NotImplementedException(string.Format("Unsupported primitive type: {0}", fromType));
+				throw new NotImplementedException("Unsupported primitive type: "+fromType);
 			
 			}
 			
@@ -521,8 +550,11 @@ namespace Nitrassic.Compiler
 		/// <param name="fromType"> The type to convert from. </param>
 		public static void ToAny(ILGenerator generator, Type fromType)
 		{
-			if (PrimitiveTypeUtilities.IsValueType(fromType))
+			
+			if (PrimitiveTypeUtilities.IsValueType(fromType)){
 				generator.Box(fromType);
+			}
+			
 		}
 	}
 

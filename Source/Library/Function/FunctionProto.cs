@@ -53,10 +53,12 @@ namespace Nitrassic.Library
 		{
 			// Passing no arguments results in an empty function.
 			if (argumentsAndBody.Length == 0)
-				return UserDefinedFunction.Create(engine, "anonymous", new ArgVariable[0], string.Empty);
+				return UserDefinedFunction.Create(engine, "anonymous", null, string.Empty);
 
 			// Split any comma-delimited names.
 			List<ArgVariable> args = new List<ArgVariable>();
+			args.Add(new ArgVariable("this"));
+			
 			for (int i = 0; i < argumentsAndBody.Length - 1; i++)
 			{
 				var splitNames = argumentsAndBody[i].Split(',');

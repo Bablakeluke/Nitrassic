@@ -65,7 +65,53 @@ namespace Nitrassic
 
 			return false;
 		}
-
+		
+		/// <summary>True if the given non-null types are equal. All numbers and string types are considered equal.</summary>
+		public static bool StrictTypesEqual(ref Type typeA,Type typeB){
+			
+			// Converge string types:
+			if(
+				typeA==typeof(string) || typeA==typeof(ConcatenatedString)
+			){
+				typeA=typeof(string);
+				
+				// A is a string. B must also be a string for this to be true.
+				if(
+					typeB==typeof(string) || typeB==typeof(ConcatenatedString)
+				){
+					return true;
+				}	
+				
+				// A is a string but B is not.
+				return false;
+				
+			}
+			
+			// Converge all number types:
+			if(
+				typeA==typeof(double) || typeA==typeof(int) || typeA==typeof(uint) || typeA==typeof(byte) || 
+				typeA==typeof(sbyte) || typeA==typeof(short) || typeA==typeof(ushort) || typeA==typeof(float)
+			){
+				typeA=typeof(double);
+			
+				// A is a number. B must also be a number for this to be true.
+				if(
+					typeB==typeof(double) || typeB==typeof(int) || typeB==typeof(uint) || typeB==typeof(byte) || 
+					typeB==typeof(sbyte) || typeB==typeof(short) || typeB==typeof(ushort) || typeB==typeof(float)
+				){
+					return true;
+				}
+				
+				// B wasn't a number.
+				return false;
+				
+			}
+			
+			// Types must be exactly equal otherwise:
+			return typeA==typeB;
+			
+		}
+		
 		/// <summary>
 		/// Compares two objects for equality.  Used by the strict equality operator (===).
 		/// </summary>
@@ -74,23 +120,56 @@ namespace Nitrassic
 		/// <returns> <c>true</c> if the objects are identical; <c>false</c> otherwise. </returns>
 		public static bool StrictEquals(object x, object y)
 		{
-			x = x ?? Undefined.Value;
-			y = y ?? Undefined.Value;
-			if (x is int)
-				x = (double)(int)x;
-			if (x is uint)
-				x = (double)(uint)x;
-			if (y is int)
-				y = (double)(int)y;
-			if (y is uint)
-				y = (double)(uint)y;
-			if (x is double && double.IsNaN((double)x) == true)
+			
+			if(x==null){
+				x=Undefined.Value;
+			}
+			
+			if(y==null){
+				y=Undefined.Value;
+			}
+			
+			Type xType=x.GetType();
+			Type yType=y.GetType();
+			
+			Type outXType=xType;
+			
+			if(!StrictTypesEqual(ref outXType,yType)){
+				// Type check failed.
 				return false;
-			if (x is ConcatenatedString)
-				x = x.ToString();
-			if (y is ConcatenatedString)
-				y = y.ToString();
-			return object.Equals(x, y);
+			}
+			
+			// All number types are considered equal.
+			if(outXType==typeof(double)){
+				
+				// They're both numbers. Convert to doubles now:
+				double xD=TypeConverter.ToNumber(x);
+				double yD=TypeConverter.ToNumber(y);
+				
+				if(double.IsNaN(xD)){
+					return false;
+				}
+				
+				return xD==yD;
+			}
+			
+			// All string types are considered equal.
+			if(outXType==typeof(string)){
+				
+				string xS=TypeConverter.ToString(x);
+				string yS=TypeConverter.ToString(y);
+				
+				return xS==yS;
+				
+			}
+			
+			// Default equality otherwise:
+			if(outXType.IsValueType){
+				return object.Equals(x, y);
+			}else{
+				return x==y;
+			}
+			
 		}
 
 		/// <summary>

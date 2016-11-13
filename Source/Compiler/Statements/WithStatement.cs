@@ -28,8 +28,17 @@ namespace Nitrassic.Compiler
 		public override void GenerateCode(ILGenerator generator, OptimizationInfo optimizationInfo)
 		{
 			
+			// Get the previous root - we'll be changing it:
+			Expression prevRoot=optimizationInfo.RootExpression;
+			
+			// Set as root:
+			Body.SetRoot(optimizationInfo);
+			
 			// Generate code for the body statements.
-			this.Body.GenerateCode(generator, optimizationInfo);
+			Body.GenerateCode(generator, optimizationInfo);
+			
+			// Restore root:
+			optimizationInfo.RootExpression=prevRoot;
 			
 		}
 

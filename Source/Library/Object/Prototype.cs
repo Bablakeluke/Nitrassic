@@ -11,6 +11,72 @@ namespace Nitrassic.Library
 	public partial class Prototype
 	{
 		
+		/// <summary>True if a generic property is available at runtime.</summary>
+		public static bool HasProperty(ScriptEngine engine,object thisObj,string property){
+			
+			// Exists?
+			if(thisObj==null){
+				throw new NullReferenceException("Attempted to read property '"+property+"' from a null reference.");
+			}
+			
+			// Get the prototype:
+			Prototype proto=engine.Prototypes.Get(thisObj.GetType());
+			
+			// Get the property:
+			return (proto.GetProperty(property)!=null);
+			
+		}
+		
+		/// <summary>Pulls a generic property from the given object at runtime.</summary>
+		public static object GetPropertyValue(ScriptEngine engine,object thisObj,string property){
+			
+			// Exists?
+			if(thisObj==null){
+				throw new NullReferenceException("Attempted to read property '"+property+"' from a null reference.");
+			}
+			
+			// Get the prototype:
+			Prototype proto=engine.Prototypes.Get(thisObj.GetType());
+			
+			// Get the property:
+			PropertyVariable pv=proto.GetProperty(property);
+			
+			if(pv==null){
+				// Undefined:
+				return Nitrassic.Undefined.Value;
+			}
+			
+			// Get the value:
+			return pv.GetValue(thisObj);
+			
+		}
+		
+		/// <summary>Sets a generic property on the given object at runtime. Note that this can't create a property.</summary>
+		public static void SetPropertyValue(ScriptEngine engine,object thisObj,string property,object value){
+			
+			// Exists?
+			if(thisObj==null){
+				throw new NullReferenceException("Attempted to set property '"+property+"' on a null reference.");
+			}
+			
+			// Get the prototype:
+			Prototype proto=engine.Prototypes.Get(thisObj.GetType());
+			
+			// Get the property:
+			PropertyVariable pv=proto.GetProperty(property);
+			
+			if(pv==null){
+				// Undefined:
+				throw new JavaScriptException(engine,"TypeError","Can't set dynamic properties on generic objects.");
+			}
+			
+			// Set the value:
+			pv.SetValue(thisObj,value);
+			
+		}
+		
+		/// <summary>True if this prototype is static (only occurs with the global scope itself).</summary>
+		public bool IsStatic;
 		/// <summary>The type name.</summary>
 		public string Name;
 		/// <summary>If this is a constructor prototype, the global instance of the constructor object.</summary>
@@ -49,11 +115,12 @@ namespace Nitrassic.Library
 			
 		}
 		
-		internal Prototype(ScriptEngine engine,string name,Prototype baseProto)
+		internal Prototype(ScriptEngine engine,string name,Prototype baseProto,bool isStatic)
 		{
 			
 			Engine = engine;
 			BasePrototype = baseProto;
+			IsStatic=isStatic;
 			
 			ReflectionEmitModuleInfo moduleInfo=engine.ReflectionEmitInfo;
 			
@@ -78,6 +145,13 @@ namespace Nitrassic.Library
 			Builder = moduleInfo.ModuleBuilder.DefineType(name, 
 				System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class, baseType
 			);
+			
+			if(!isStatic){
+				
+				// Define the default ctr and obtain it:
+				AddConstructor( Builder.DefineDefaultConstructor(System.Reflection.MethodAttributes.Public) );
+				
+			}
 			
 		}
 		
@@ -118,6 +192,23 @@ namespace Nitrassic.Library
 			Builder=null;
 		}
 		
+		/// <summary>Invokes OnConstruct directly.</summary>
+		public object ConstructInstance(object[] paramSet){
+			
+			MethodBase resMethod=(OnConstruct as MethodBase);
+			System.Reflection.ConstructorInfo ctr=resMethod as System.Reflection.ConstructorInfo;
+			
+			if(ctr!=null)
+			{
+				// Actual constructor call:
+				return ctr.Invoke(paramSet);
+			}
+			
+			// Ordinary method:
+			return resMethod.Invoke(CtrInstance,paramSet);
+			
+		}
+		
 		/// <summary>
 		/// Instances something of this type.
 		/// </summary>
@@ -136,7 +227,7 @@ namespace Nitrassic.Library
 		{
 			
 			// Create the new one:
-			Prototype proto=new Prototype(Engine,null,null);
+			Prototype proto=new Prototype(Engine,null,null,IsStatic);
 			
 			// Define an internal derived property:
 			proto.AddProperty("JS__Internal__Derived",Type,PropertyAttributes.NonEnumerable);
@@ -150,7 +241,16 @@ namespace Nitrassic.Library
 		/// </summary>
 		public Prototype Inherit()
 		{
-			return new Prototype(Engine,null,this);
+			return new Prototype(Engine,null,this,IsStatic);
+		}
+		
+		/// <summary>
+		/// The constructor for this prototype.
+		/// </summary>
+		internal ConstructorInfo TypeConstructor{
+			get{
+				return Constructor as ConstructorInfo;
+			}
 		}
 		
 		/// <summary>
@@ -176,7 +276,7 @@ namespace Nitrassic.Library
 					return Engine.Prototypes.ObjectPrototype.Constructor;
 				}
 				
-				return property.Value;
+				return property.ConstantValue;
 			}
 		}
 		
@@ -184,6 +284,74 @@ namespace Nitrassic.Library
 			get{
 				return GetProperty(name);
 			}
+		}
+		
+		/// <summary>Enumerates all the values in the given object.</summary>
+		public IEnumerable<object> PropertyValues(object obj){
+			
+			// Got a custom one?
+			PropertyVariable pv=GetProperty("PropertyValues");
+			
+			if(pv==null){
+				
+				foreach(KeyValuePair<string,PropertyVariable> kvp in Properties){
+					
+					if(kvp.Value.IsEnumerable){
+						
+						// Read the value:
+						object value=kvp.Value.GetValue(obj);
+						
+						yield return value;
+					}
+					
+				}
+				
+			}else{
+				
+				// Get the value:
+				IEnumerable<object> set=pv.GetValue(obj) as IEnumerable<object>;
+				
+				// Iterate it:
+				foreach(object s in set){
+					
+					yield return s;
+					
+				}
+				
+			}
+			
+		}
+		
+		/// <summary>Enumerates all properties and accounts for any custom ones if the object defines it.</summary>
+		public IEnumerable<string> PropertyEnumerator(object obj){
+			
+			// Got a custom one?
+			PropertyVariable pv=GetProperty("Properties");
+			
+			if(pv==null){
+				
+				foreach(KeyValuePair<string,PropertyVariable> kvp in Properties){
+					
+					if(kvp.Value.IsEnumerable){
+						yield return kvp.Key;
+					}
+					
+				}
+				
+			}else{
+				
+				// Get the value:
+				IEnumerable<string> set=pv.GetValue(obj) as IEnumerable<string>;
+				
+				// Iterate it:
+				foreach(string str in set){
+					
+					yield return str;
+					
+				}
+				
+			}
+			
 		}
 		
 		// Properties
@@ -203,6 +371,24 @@ namespace Nitrassic.Library
 				}
 				return Properties.Count;
 			}
+		}
+		
+		/// <summary>
+		/// Used by for..in
+		/// </summary>
+		internal PropertyVariable PropertyEnumerator(){
+			
+			return GetProperty("___properties");
+			
+		}
+		
+		/// <summary>
+		/// Used for this[indexerType]
+		/// </summary>
+		internal PropertyVariable Indexer(Type indexerType){
+			
+			return GetProperty("___item_"+indexerType.Name);
+			
 		}
 		
 		/// <summary>
@@ -235,7 +421,7 @@ namespace Nitrassic.Library
 			if (function == null)
 				throw new JavaScriptException(this.Engine, "TypeError", "Object "+ToString()+" has no method '"+functionName+"'");
 			
-			MethodBase method = function.Value as MethodBase;
+			MethodBase method = function.ConstantValue as MethodBase;
 			
 			if(method!=null)
 			{
@@ -243,7 +429,7 @@ namespace Nitrassic.Library
 				return method.Invoke(thisObj,parameters);
 			}
 			
-			MethodGroup set = function.Value as MethodGroup;
+			MethodGroup set = function.ConstantValue as MethodGroup;
 			
 			if(set!=null)
 			{
@@ -252,6 +438,86 @@ namespace Nitrassic.Library
 			}
 			
 			throw new JavaScriptException(this.Engine, "TypeError", "Property '"+functionName+"' of object "+ToString()+" is not a function");
+			
+		}
+		
+		/// <summary>True if the given name is on this prototype or inherited ones.</summary>
+		public bool HasProperty(string property){
+			
+			if(Properties!=null){
+				if(Properties.ContainsKey(property)){
+					return true;
+				}
+			}
+			
+			if(BasePrototype!=null){
+				return BasePrototype.HasProperty(property);
+			}
+			
+			// Not found.
+			return false;
+			
+		}
+		
+		/// <summary>True if the given name is on this prototype (and not inherited ones).</summary>
+		public bool HasOwnProperty(string property){
+			
+			if(Properties==null){
+				return false;
+			}
+			
+			return Properties.ContainsKey(property);
+			
+		}
+		
+		/// <summary>
+		/// Gets an enumerable list of every property name and value associated with this object.
+		/// Includes properties in the prototype chain.
+		/// </summary>
+		[JSProperties(Hidden=true)]
+		public IEnumerator<string> GetIterator()
+		{
+			
+			Prototype current=this;
+			
+			while(current!=null){
+				
+				// Enumerate named properties.
+				foreach (KeyValuePair<string,PropertyVariable> pair in current.Properties){
+					
+					// Can we 'see' this property?
+					if(pair.Value.IsEnumerable){
+						
+						yield return pair.Key;
+					
+					}
+					
+				}
+				
+				current=current.BasePrototype;
+				
+			}
+			
+		}
+		
+		/// <summary>
+		/// Gets an enumerable list of every property name and value associated with this object.
+		/// Does not include properties in the prototype chain.
+		/// </summary>
+		[JSProperties(Hidden=true)]
+		public IEnumerator<string> GetOwnIterator()
+		{
+			// Enumerate named properties.
+			foreach (KeyValuePair<string,PropertyVariable> pair in Properties){
+				
+				// Can we 'see' this property?
+				if(pair.Value.IsEnumerable){
+					
+					yield return pair.Key;
+				
+				}
+				
+			}
 			
 		}
 		
@@ -274,15 +540,23 @@ namespace Nitrassic.Library
 			return sp;
 		}
 		
-		private static int Count(IEnumerable<PropertyNameAndValue> properties)
+		/// <summary>
+		/// Adds a property to this object, typically generating a field of the given type.
+		/// </summary>
+		/// <param name="name"> The name of the property to add. </param>
+		/// <param name="attributes"> The property attributes. </param>
+		internal PropertyVariable AddProperty(string name, Nitrassic.Library.PropertyAttributes attributes,Type valueType)
 		{
 			
-			int c=0;
-			foreach (var property in properties)
-			 c++;
+			if(Properties==null)
+			{
+				Properties = new Dictionary<string, PropertyVariable>();
+			}
 			
-			return c;
+			PropertyVariable sp=new PropertyVariable(this, name, attributes,valueType);
+			Properties[name]=sp;
 			
+			return sp;
 		}
 		
 		//	 ATTRIBUTE-BASED PROTOTYPE POPULATION
@@ -368,7 +642,7 @@ namespace Nitrassic.Library
 					return null;
 				}
 				
-				return property.Value;
+				return property.ConstantValue;
 			}
 		}
 		
@@ -386,7 +660,7 @@ namespace Nitrassic.Library
 					return null;
 				}
 				
-				return property.Value;
+				return property.ConstantValue;
 			}
 		}
 		
@@ -408,16 +682,18 @@ namespace Nitrassic.Library
 			else
 				name = method.Name;
 			
-			if(name.StartsWith("get_") || name.StartsWith("set_"))
-			{
+			// Reject properties (but not constructors):
+			if(method.IsSpecialName && name!=".ctor"){
 				return;
 			}
+			
+			ParameterInfo[] mParams=null;
 			
 			if(method.IsStatic && staticMode!=0)
 			{
 				// If it's static and it does not have a 'thisObj' property
 				// then it's a constructor level static function, IF the object has a constructor at all.
-				ParameterInfo[] mParams=method.GetParameters();
+				mParams=method.GetParameters();
 				
 				if(mParams.Length>0)
 				{
@@ -450,6 +726,19 @@ namespace Nitrassic.Library
 				enumerable=false;
 			}
 			
+			// Special case for get_ or set_ methods - we want them to act like properties.
+			// Chop off get_ or set_ here (so the actual name entering the proto is correct)
+			// then when the user attempts to use it like a property, it checks then.
+			int actLikeProperty=0;
+			
+			if(name.StartsWith("get_")){
+				name=name.Substring(4);
+				actLikeProperty=1;
+			}else if(name.StartsWith("set_")){
+				name=name.Substring(4);
+				actLikeProperty=2;
+			}
+			
 			// For methods, auto == lowercase.
 			if(attribute==null)
 			{
@@ -470,6 +759,46 @@ namespace Nitrassic.Library
 				
 			}
 			
+			if(actLikeProperty!=0){
+				
+				if(name=="_Item"){
+					
+					// Rename! Actually got an indexer here.
+					name="___item";
+					
+					if(mParams==null){
+						mParams=method.GetParameters();
+					}
+					
+					// Skip thisObj and engine if they're set:
+					for(int i=0;i<mParams.Length;i++){
+						
+						ParameterInfo p=mParams[i];
+						
+						if(i<2){
+							
+							// Skip special parameters.
+							
+							if(p.Name=="thisObj" || (i==0 && p.ParameterType==typeof(ScriptEngine))){
+								continue;
+							}
+							
+						}
+						
+						// Append the type name:
+						name+="_"+p.ParameterType.Name;
+						
+					}
+					
+				}else if(name=="_Properties"){
+					
+					// Rename! Got the property enumerator here.
+					name="___properties";
+					
+				}
+				
+			}
+			
 			// Check property attributes.
 			Nitrassic.Library.PropertyAttributes descriptorAttributes = Nitrassic.Library.PropertyAttributes.Sealed;
 			if (attribute!=null && attribute.IsEnumerable && enumerable)
@@ -484,13 +813,51 @@ namespace Nitrassic.Library
 			
 			if(property==null)
 			{
-				// Add as a single method:
-				property=AddProperty(name,method,descriptorAttributes);
+				// Add as a single method, optionally as a virtual property:
+				object propertyValue;
+				
+				if(actLikeProperty==0){
+					
+					// Straight apply the method:
+					propertyValue=method;
+					
+				}else{
+					
+					// Create a virtual property:
+					VirtualProperty vProperty=new VirtualProperty();
+					
+					// Apply the method:
+					if(actLikeProperty==1){
+						vProperty.GetMethod=method;
+						vProperty.LoadMeta();
+					}else{
+						vProperty.SetMethod=method;
+					}
+					
+					// Apply virtual property as the value:
+					propertyValue=vProperty;
+					
+				}
+				
+				property=AddProperty(name,propertyValue,descriptorAttributes);
+				
 			}
-			else
-			{
+			else if(actLikeProperty!=0){
+				
+				// Got the other method in a property.
+				VirtualProperty vProperty=property.ConstantValue as VirtualProperty;
+				
+				// Apply the method:
+				if(actLikeProperty==1){
+					vProperty.GetMethod=method;
+					vProperty.LoadMeta();
+				}else{
+					vProperty.SetMethod=method;
+				}
+				
+			}else{
 				// Already a method set?
-				MethodGroup group=property.Value as MethodGroup;
+				MethodGroup group=property.ConstantValue as MethodGroup;
 				
 				if(group==null)
 				{
@@ -502,7 +869,7 @@ namespace Nitrassic.Library
 					group.PropertyAttributes = descriptorAttributes;
 					
 					// Add the method:
-					group.Add(property.Value as MethodBase);
+					group.Add(property.ConstantValue as MethodBase);
 					
 					// Force the property to change type:
 					property.ForceChange(group);
@@ -600,6 +967,20 @@ namespace Nitrassic.Library
 					continue;
 				}
 				
+				// Handle this[indexer] next:
+				ParameterInfo[] indexParams=prop.GetIndexParameters();
+				
+				if(indexParams!=null && indexParams.Length>0){
+					// Add to the name:
+					
+					name="___item";
+					
+					for(int i=0;i<indexParams.Length;i++){
+						name+="_"+indexParams[i].ParameterType.Name;
+					}
+					
+				}
+				
 				// Define the property.
 				AddProperty(name, prop, PropertyAttributes.FullAccess);
 			}
@@ -624,12 +1005,34 @@ namespace Nitrassic.Library
 			if (type == null)
 				type = this.GetType();
 			
+			// Get the js properties for the type:
+			JSProperties typeAttribute = (JSProperties)Attribute.GetCustomAttribute(type, typeof(JSProperties));
+			
+			CaseMode typeCaseMode=CaseMode.Auto;
+			
+			if(typeAttribute!=null){
+				
+				typeCaseMode=typeAttribute.FirstFieldCharacter;
+				
+			}
+			
 			// Find all fields with [JsField]
 			foreach (var field in type.GetFields())
 			{
 				var attribute = (JSProperties)Attribute.GetCustomAttribute(field, typeof(JSProperties));
 				if (attribute != null && attribute.Hidden)
 					continue;
+				
+				CaseMode caseMode=CaseMode.Auto;
+				
+				if(attribute!=null){
+					// Got settings; apply case mode:
+					caseMode=attribute.FirstCharacter;
+				}
+				
+				if(caseMode==CaseMode.Auto){
+					caseMode=typeCaseMode;
+				}
 				
 				string name;
 				if (attribute!=null && attribute.Name != null)
@@ -653,18 +1056,13 @@ namespace Nitrassic.Library
 					continue;
 				}
 				
-				if(attribute!=null)
+				// auto == lowercase
+				if(caseMode==CaseMode.Upper)
 				{
-					
-					// For fields, auto == as is
-					if(attribute.FirstCharacter==CaseMode.Upper)
-					{
-						name=char.ToUpper(name[0])+name.Substring(1);
-					}else if(attribute.FirstCharacter==CaseMode.Lower)
-					{
-						name=char.ToLower(name[0])+name.Substring(1);
-					}
-					
+					name=char.ToUpper(name[0])+name.Substring(1);
+				}else if(caseMode==CaseMode.Lower || caseMode==CaseMode.Auto)
+				{
+					name=char.ToLower(name[0])+name.Substring(1);
 				}
 				
 				if(field.IsLiteral && !field.IsInitOnly)

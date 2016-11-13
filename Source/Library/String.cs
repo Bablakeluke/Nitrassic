@@ -33,7 +33,7 @@ namespace Nitrassic.Library
 		/// <param name="index"> The array index of the property. </param>
 		/// <returns> A property descriptor containing the property value and attributes. </returns>
 		/// <remarks> The prototype chain is not searched. </remarks>
-		public static string get_Item(string thisObj,uint index)
+		public static string get__Item(string thisObj,uint index)
 		{
 			if (index < thisObj.Length)
 			{
@@ -42,16 +42,32 @@ namespace Nitrassic.Library
 			
 			return null;
 		}
-
+		
+		/// <summary>
+		/// Gets a descriptor for the property with the given array index.
+		/// </summary>
+		/// <param name="index"> The array index of the property. </param>
+		/// <returns> A property descriptor containing the property value and attributes. </returns>
+		/// <remarks> The prototype chain is not searched. </remarks>
+		public static string get__Item(string thisObj,int index)
+		{
+			if (index < thisObj.Length)
+			{
+				return thisObj[(int)index].ToString();
+			}
+			
+			return null;
+		}
+		
 		/// <summary>
 		/// Gets an enumerable list of every property name and value associated with thisObj.
 		/// </summary>
-		public static IEnumerable<PropertyNameAndValue> get_Properties(string thisObj)
+		public static IEnumerator<string> get__Properties(string thisObj)
 		{
 			
 			// Enumerate array indices.
 			for (int i = 0; i < thisObj.Length; i++)
-				yield return new PropertyNameAndValue(i.ToString(), thisObj[i].ToString(), PropertyAttributes.Enumerable);
+				yield return i.ToString();
 			
 		}
 		
@@ -76,12 +92,12 @@ namespace Nitrassic.Library
 		/// </summary>
 		/// <param name="thisObj"> The string that is being operated on. </param>
 		/// <param name="index"> The character position (starts at 0). </param>
-		/// <returns></returns>
-		public static double CharCodeAt(string thisObj, int index)
+		/// <returns>Warning: Non-standard return when index is out of range (returns -1).</returns>
+		public static int CharCodeAt(string thisObj, int index)
 		{
 			if (index < 0 || index >= thisObj.Length)
-				return double.NaN;
-			return (double)(int)thisObj[index];
+				return -1;
+			return (int)thisObj[index];
 		}
 
 		/// <summary>
@@ -89,18 +105,18 @@ namespace Nitrassic.Library
 		/// </summary>
 		/// <param name="thisObj"> The string that is being operated on. </param>
 		/// <param name="index"> The character position (starts at 0). </param>
-		/// <returns></returns>
-		public static double CodePointAt(string thisObj, int index)
+		/// <returns>Warning: Non-standard return when index is out of range (returns -1).</returns>
+		public static int CodePointAt(string thisObj, int index)
 		{
 			if (index < 0 || index >= thisObj.Length)
-				return double.NaN;
+				return -1;
 			int firstCodePoint = (int) thisObj[index];
 			if (firstCodePoint < 0xD800 || firstCodePoint > 0xDBFF || index + 1 == thisObj.Length)
 				return firstCodePoint;
 			int secondCodePoint = (int) thisObj[index + 1];
 			if (secondCodePoint < 0xDC00 || secondCodePoint > 0xDFFF)
 				return firstCodePoint;
-			return (double)((firstCodePoint - 0xD800) * 1024 + (secondCodePoint - 0xDC00) + 0x10000);
+			return ((firstCodePoint - 0xD800) * 1024 + (secondCodePoint - 0xDC00) + 0x10000);
 		}
 
 		/// <summary>
@@ -217,14 +233,14 @@ namespace Nitrassic.Library
 		{
 			if (substrOrRegExp is RegExp)
 				// substrOrRegExp is a regular expression.
-				return ((RegExp)substrOrRegExp).Match(thisObj);
+				return ((RegExp)substrOrRegExp).Match(engine,thisObj);
 
 			if (TypeUtilities.IsUndefined(substrOrRegExp))
 				// substrOrRegExp is undefined.
-				return (engine.Prototypes.RegExp.Invoke(null,new object[]{"",null}) as RegExp).Match(thisObj);
+				return (engine.Prototypes.RegExp.Invoke(null,new object[]{"",null}) as RegExp).Match(engine,thisObj);
 
 			// substrOrRegExp is a string (or convertible to a string).
-			return (engine.Prototypes.RegExp.Invoke(null,new object[]{TypeConverter.ToString(substrOrRegExp),null}) as RegExp).Match(thisObj);
+			return (engine.Prototypes.RegExp.Invoke(null,new object[]{TypeConverter.ToString(substrOrRegExp),null}) as RegExp).Match(engine,thisObj);
 		}
 		
 		/// <summary>
@@ -447,7 +463,7 @@ namespace Nitrassic.Library
 
 			// Call separate methods, depending on whether the separator is a regular expression.
 			if (separator is RegExp)
-				return Split(thisObj, (RegExp)separator, limit2);
+				return Split(engine,thisObj, (RegExp)separator, limit2);
 			else
 				return Split(engine, thisObj, TypeConverter.ToString(separator), limit2);
 		}
@@ -459,12 +475,12 @@ namespace Nitrassic.Library
 		/// <param name="regExp"> A regular expression that indicates where to split the string. </param>
 		/// <param name="limit"> The maximum number of array items to return.  Defaults to unlimited. </param>
 		/// <returns> An array containing the split strings. </returns>
-		internal static Nitrassic.Library.Array Split(string thisObj, RegExp regExp, uint limit)
+		internal static Nitrassic.Library.Array Split(ScriptEngine engine,string thisObj, RegExp regExp, uint limit)
 		{
 			if(limit==0)
 				limit=uint.MaxValue;
 			
-			return regExp.Split(thisObj, limit);
+			return regExp.Split(engine,thisObj, limit);
 		}
 
 		/// <summary>

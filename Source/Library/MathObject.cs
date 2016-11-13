@@ -7,7 +7,7 @@ namespace Nitrassic.Library
 	/// <summary>
 	/// Represents the built-in Math class that has mathematical constants and functions.
 	/// </summary>
-	[JSProperties(Name="Math",NoConstructors=true)]
+	[JSProperties(Name="Math",NoConstructors=true,FirstFieldCharacter=CaseMode.Upper)]
 	public class MathObject
 	{
 		

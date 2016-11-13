@@ -58,7 +58,7 @@ namespace Nitrassic.Library
 			tempObject[string.Empty] = value;
 
 			// Transform the value.
-			value = TransformPropertyValue(tempObject, string.Empty);
+			value = TransformPropertyValue(engine,tempObject, string.Empty);
 			if (value == null || value == Undefined.Value || value is FunctionInstance)
 				return null;
 
@@ -74,7 +74,7 @@ namespace Nitrassic.Library
 		/// <param name="holder"> The object containing the value. </param>
 		/// <param name="propertyName"> The name of the property holding the value to transform. </param>
 		/// <returns> The transformed value. </returns>
-		private object TransformPropertyValue(ObjectInstance holder, string propertyName)
+		private object TransformPropertyValue(ScriptEngine engine,ObjectInstance holder, string propertyName)
 		{
 			object value = holder[propertyName];
 
@@ -88,7 +88,7 @@ namespace Nitrassic.Library
 
 			// Transform the value by calling the replacer function, if one was provided.
 			if (this.ReplacerFunction != null)
-				value = this.ReplacerFunction.CallLateBound(holder, propertyName, value);
+				value = this.ReplacerFunction.CallLateBound(engine,holder, propertyName, value);
 
 			return value;
 		}
@@ -99,7 +99,7 @@ namespace Nitrassic.Library
 		/// <param name="holder"> The object containing the value. </param>
 		/// <param name="arrayIndex"> The array index of the property holding the value to transform. </param>
 		/// <returns> The transformed value. </returns>
-		private object TransformPropertyValue(Nitrassic.Library.Array holder, uint arrayIndex)
+		private object TransformPropertyValue(ScriptEngine engine,Nitrassic.Library.Array holder, uint arrayIndex)
 		{
 			string propertyName = null;
 			object value = holder[arrayIndex];
@@ -118,7 +118,7 @@ namespace Nitrassic.Library
 			{
 				if (propertyName == null)
 					propertyName = arrayIndex.ToString();
-				value = this.ReplacerFunction.CallLateBound(holder, propertyName, value);
+				value = this.ReplacerFunction.CallLateBound(engine,holder, propertyName, value);
 			}
 
 			return value;
@@ -294,7 +294,7 @@ namespace Nitrassic.Library
 			foreach (string propertyName in propertiesToSerialize)
 			{
 				// Transform the value using the replacer function or toJSON().
-				object propertyValue = TransformPropertyValue(value, propertyName);
+				object propertyValue = TransformPropertyValue(engine,value, propertyName);
 
 				// Undefined values are not serialized.
 				if (propertyValue == null || propertyValue == Undefined.Value || propertyValue is FunctionInstance)
@@ -344,7 +344,10 @@ namespace Nitrassic.Library
 			this.arrayStack.Push(value);
 
 			result.Append('[');
-			for (uint i = 0; i < value.Length; i++)
+			
+			uint arrLen=(uint)Nitrassic.Library.Array.get_Length(engine,value);
+			
+			for (uint i = 0; i < arrLen; i++)
 			{
 				// Append the separator.
 				if (i > 0)
@@ -352,7 +355,7 @@ namespace Nitrassic.Library
 				result.Append(this.separator);
 
 				// Transform the value using the replacer function or toJSON().
-				object elementValue = TransformPropertyValue(value, i);
+				object elementValue = TransformPropertyValue(engine,value, i);
 
 				if (elementValue == null || elementValue == Undefined.Value || elementValue is FunctionInstance)
 				{
@@ -365,7 +368,7 @@ namespace Nitrassic.Library
 					SerializePropertyValue(elementValue, result);
 				}
 			}
-			if (value.Length > 0)
+			if (arrLen > 0)
 				result.Append(previousSeparator);
 			result.Append(']');
 

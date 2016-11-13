@@ -11,12 +11,41 @@ namespace Nitrassic.Compiler
 	internal sealed class FunctionExpression : Expression
 	{
 		private FunctionMethodGenerator context;
-
+		
+		/// <summary>
+		/// How this function was declared.
+		/// </summary>
+		public FunctionDeclarationType DeclarationType;
+		
 		/// <summary>
 		/// Creates a new instance of FunctionExpression.
 		/// </summary>
 		public FunctionExpression()
 		{}
+		
+		internal FunctionMethodGenerator Context{
+			get{
+				return context;
+			}
+		}
+		
+		public override object Evaluate(){
+			
+			return Context;
+			
+		}
+		
+		internal override void ResolveVariables(OptimizationInfo optimizationInfo)
+		{
+			// Do nothing here. We should only resolve variables inside a function when it's actually getting compiled.
+		}
+		
+		/// <summary>Forces the resolving of variables now.</summary>
+		internal void ResolveVariablesNow(OptimizationInfo optimizationInfo){
+			
+			base.ResolveVariables(optimizationInfo);
+			
+		}
 		
 		/// <param name="functionContext"> The function context to base this expression on. </param>
 		internal void SetContext(FunctionMethodGenerator functionContext)
@@ -56,21 +85,17 @@ namespace Nitrassic.Compiler
 		{
 			get { return this.context.Arguments; }
 		}
-
-		/// <summary>
-		/// Gets the source code for the body of the function.
-		/// </summary>
-		public string BodyText
-		{
-			get { return this.context.BodyText; }
-		}
-
+		
 		/// <summary>
 		/// Gets the type that results from evaluating this expression.
 		/// </summary>
 		public override Type GetResultType(OptimizationInfo optimizationInfo)
-		{
-			return typeof(Library.ObjectInstance);
+		{	
+			if(HoistValues!=null){
+				return typeof(HoistFunctionReference);
+			}
+			
+			return typeof(FunctionMethodGenerator);
 		}
 
 		/// <summary>
@@ -80,24 +105,26 @@ namespace Nitrassic.Compiler
 		/// <param name="optimizationInfo"> Information about any optimizations that should be performed. </param>
 		public override void GenerateCode(ILGenerator generator, OptimizationInfo optimizationInfo)
 		{
-			// Generate a new method.
-			this.context.GenerateCode(optimizationInfo);
+			
+			// Setup the method info.
+			// this.context.SetupMethod(optimizationInfo);
 			
 			// Add the generated method to the nested function list.
 			if (optimizationInfo.NestedFunctions == null)
-				optimizationInfo.NestedFunctions = new List<UserDefinedFunction>();
-			optimizationInfo.NestedFunctions.Add(this.context.GeneratedMethod);
+				optimizationInfo.NestedFunctions = new List<FunctionMethodGenerator>();
+			optimizationInfo.NestedFunctions.Add(context);
 			
 			// Add all the nested methods to the parent list.
 			// Note: it's used to compute which variables are being hoisted.
-			if (this.context.GeneratedMethod.Dependencies != null)
+			if (this.context.Dependencies != null)
 			{
-				foreach (var nestedFunctionExpression in this.context.GeneratedMethod.Dependencies)
+				foreach (var nestedFunctionExpression in this.context.Dependencies)
 					optimizationInfo.NestedFunctions.Add(nestedFunctionExpression);
 			}
 			
 			if(HoistValues!=null)
 			{
+				
 				// Script engine:
 				EmitHelpers.LoadEngine(generator);
 				
@@ -127,7 +154,7 @@ namespace Nitrassic.Compiler
 				generator.NewObject(ReflectionHelpers.HoistFunctionReference_Constructor);
 				
 			}else{
-			
+				
 				// body
 				generator.LoadInt64(context.MethodID);
 				generator.Call(ReflectionHelpers.MethodLookup_Load);
@@ -160,7 +187,7 @@ namespace Nitrassic.Compiler
 		/// <returns> A string representing this expression. </returns>
 		public override string ToString()
 		{
-			return string.Format("function {0}({1}) {{\n{2}\n}}", this.FunctionName, StringHelpers.Join(", ", this.Arguments), this.BodyText);
+			return context.ToString();
 		}
 	}
 

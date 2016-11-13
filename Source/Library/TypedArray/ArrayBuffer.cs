@@ -28,7 +28,7 @@ namespace Nitrassic.Library
 		{
 			this.buffer = new byte[size];
 		}
-
+		
 		/// <summary>
 		/// Creates a new ArrayBuffer instance from an existing buffer.
 		/// </summary>
@@ -38,9 +38,7 @@ namespace Nitrassic.Library
 		{
 			this.buffer = buffer;
 		}
-
-
-
+		
 		//	 .NET ACCESSOR PROPERTIES
 		//_________________________________________________________________________________________
 		
@@ -130,7 +128,7 @@ namespace Nitrassic.Library
 
 			byte[] newBuffer = new byte[end - begin];
 			System.Array.Copy(this.buffer, begin, newBuffer, 0, end - begin);
-			return new ArrayBuffer(newBuffer);
+			return null;//new ArrayBuffer(newBuffer);
 		}
 		
 		/// <summary>

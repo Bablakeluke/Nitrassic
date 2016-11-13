@@ -7,7 +7,7 @@ namespace Nitrassic.Compiler
 	/// <summary>
 	/// Represents a generator that logs all operations.
 	/// </summary>
-	internal class LoggingILGenerator : ILGenerator
+	public class LoggingILGenerator : ILGenerator
 	{
 		internal ILGenerator generator;
 		private StringBuilder header;
@@ -22,7 +22,13 @@ namespace Nitrassic.Compiler
 			public int BufferOffset;
 		}
 		private List<LabelFixUp> fixUps;
-
+		
+		public override System.Reflection.Emit.MethodBuilder Builder{
+			get{
+				return generator.Builder;
+			}
+		}
+		
 		/// <summary>
 		/// Creates a new LoggingILGenerator instance.
 		/// </summary>
@@ -642,25 +648,65 @@ namespace Nitrassic.Compiler
 			Log("unbox.any", type);
 			this.generator.UnboxAny(type);
 		}
+		
+		/// <summary>
+		/// Pops a value from the stack, converts it to a signed byte, then pushes it back onto
+		/// the stack.
+		/// </summary>
+		public override void ConvertToInt8()
+		{
+			Log("conv.i1");
+			this.generator.ConvertToInt8();
+		}
 
+		/// <summary>
+		/// Pops a value from the stack, converts it to an unsigned byte, then pushes it back
+		/// onto the stack.
+		/// </summary>
+		public override void ConvertToUnsignedInt8()
+		{
+			Log("conv.u1");
+			this.generator.ConvertToUnsignedInt8();
+		}
+		
+		/// <summary>
+		/// Pops a value from the stack, converts it to a signed short, then pushes it back onto
+		/// the stack.
+		/// </summary>
+		public override void ConvertToInt16()
+		{
+			Log("conv.i2");
+			this.generator.ConvertToInt16();
+		}
+
+		/// <summary>
+		/// Pops a value from the stack, converts it to an unsigned short, then pushes it back
+		/// onto the stack.
+		/// </summary>
+		public override void ConvertToUnsignedInt16()
+		{
+			Log("conv.u2");
+			this.generator.ConvertToUnsignedInt16();
+		}
+		
 		/// <summary>
 		/// Pops a value from the stack, converts it to a signed integer, then pushes it back onto
 		/// the stack.
 		/// </summary>
-		public override void ConvertToInteger()
+		public override void ConvertToInt32()
 		{
 			Log("conv.i4");
-			this.generator.ConvertToInteger();
+			this.generator.ConvertToInt32();
 		}
 
 		/// <summary>
 		/// Pops a value from the stack, converts it to an unsigned integer, then pushes it back
 		/// onto the stack.
 		/// </summary>
-		public override void ConvertToUnsignedInteger()
+		public override void ConvertToUnsignedInt32()
 		{
 			Log("conv.u4");
-			this.generator.ConvertToUnsignedInteger();
+			this.generator.ConvertToUnsignedInt32();
 		}
 
 		/// <summary>
@@ -715,7 +761,7 @@ namespace Nitrassic.Compiler
 		/// <param name="constructor"> The constructor that is used to initialize the object. </param>
 		public override void NewObject(System.Reflection.ConstructorInfo constructor)
 		{
-			Log("newobj", constructor);
+			Log("newobj\t"+constructor.DeclaringType.ToString());
 			this.generator.NewObject(constructor);
 		}
 
@@ -728,7 +774,7 @@ namespace Nitrassic.Compiler
 		/// <param name="method"> The method to call. </param>
 		public override void CallStatic(System.Reflection.MethodBase method)
 		{
-			Log("call", method);
+			Log("call", method.Name);
 			this.generator.CallStatic(method);
 		}
 

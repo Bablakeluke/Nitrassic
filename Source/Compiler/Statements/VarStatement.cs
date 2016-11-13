@@ -36,7 +36,7 @@ namespace Nitrassic.Compiler
 		{
 			get { return this.declarations; }
 		}
-
+		
 		/// <summary>
 		/// Generates CIL for the statement.
 		/// </summary>
@@ -45,15 +45,21 @@ namespace Nitrassic.Compiler
 		public override void GenerateCode(ILGenerator generator, OptimizationInfo optimizationInfo)
 		{
 			
-			foreach (var declaration in this.Declarations)
-			{
-				if (declaration.InitExpression != null)
-				{
+			foreach (var declaration in this.Declarations){
+				
+				if (declaration.InitExpression != null){
+					
 					// Create a new assignment expression and generate code for it.
-					var initializationStatement = new ExpressionStatement(
-						new AssignmentExpression(this.Scope, declaration.VariableName, declaration.InitExpression));
+					Expression expr=new AssignmentExpression(this.Scope, declaration.VariableName, declaration.InitExpression);
+					
+					var initializationStatement = new ExpressionStatement(expr);
+					
+					// Set it as the root:
+					optimizationInfo.RootExpression=expr;
+					
 					initializationStatement.GenerateCode(generator, optimizationInfo);
 				}
+				
 			}
 			
 		}

@@ -36,7 +36,7 @@ namespace Nitrassic.Compiler
 		/// <returns> <c>true</c> if the given primitive type is a value type; <c>false</c> otherwise. </returns>
 		public static bool IsValueType(Type type)
 		{
-			return type == typeof(bool) || type == typeof(double) || type == typeof(int) || type == typeof(uint);
+			return type.IsValueType;
 		}
 
 		/// <summary>

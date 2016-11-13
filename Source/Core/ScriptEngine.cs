@@ -10,22 +10,46 @@ namespace Nitrassic
 	/// </summary>
 	public partial class ScriptEngine{
 		
-		// Compatibility mode.
-		private CompatibilityMode compatibilityMode;
+		/// <summary>
+		/// Gets or sets a value that indicates whether to disassemble any generated IL and store it
+		/// in the associated function.
+		/// </summary>
+		public static bool EnableILAnalysis;
+		
+		/// <summary>
+		/// Gets or sets a value which indicates whether debug information should be generated.  If
+		/// this is set to <c>true</c> performance and memory usage are negatively impacted.
+		/// </summary>
+		public static bool EnableDebugging;
+		
+		/// <summary>
+		/// Gets or sets a value that indicates whether to force ECMAScript 5 strict mode, even if
+		/// the code does not contain a strict mode directive ("use strict").  The default is
+		/// <c>false</c>.
+		/// </summary>
+		public static bool ForceStrictMode;
+		
+		/// <summary>
+		/// A value that indicates if warnings about collapsed global variables should be triggered.
+		/// A collapsing global has performance implications, so they're best avoided. The default is <c>true</c>.
+		/// </summary>
+		public static bool CollapseWarning=true;
+		
 		
 		public PrototypeLookup Prototypes;
 		
 		/// <summary>
-		/// Gets the built-in global object.  This object is implicitly accessed when creating
-		/// global variables and functions.
+		/// The built-in global prototype.
 		/// </summary>
-		internal Window Global;
+		internal Prototype GlobalPrototype;
 		
-		// The global scope.
-		public Compiler.ObjectScope GlobalScope;
+		/// <summary>
+		/// An instance of the global object. Note that virtually all the fields are static.
+		/// It only exists as an object for use by 'this'.</summary>
+		internal object Global;
 		
-		// Mono check.
-		internal static bool IsMonoRuntime = Type.GetType("Mono.Runtime") != null;
+		/// <summary>The global scope.</summary>
+		internal Compiler.ObjectScope GlobalScope;
 		
 		/// <summary>
 		/// Initializes a new scripting environment.
@@ -45,34 +69,12 @@ namespace Nitrassic
 				// Share the lookup:
 				Prototypes=PrototypeLookup.All;
 				
-				// Create all the built-in objects.
-				Global = new Window(this);
-				
 				// Setup the global cache:
 				ReflectionEmitInfo.SetupGlobalCache();
 				
 			}
 			
-			// Global scope:
-			GlobalScope=Compiler.ObjectScope.CreateGlobalScope(this);
-			
 		}
-		
-		//	 PROPERTIES
-		//_________________________________________________________________________________________
-
-		/// <summary>
-		/// Gets or sets a value that indicates whether to force ECMAScript 5 strict mode, even if
-		/// the code does not contain a strict mode directive ("use strict").  The default is
-		/// <c>false</c>.
-		/// </summary>
-		public bool ForceStrictMode;
-		
-		/// <summary>
-		/// A value that indicates if warnings about collapsed global variables should be triggered.
-		/// A collapsing global has performance implications, so they're best avoided. The default is <c>true</c>.
-		/// </summary>
-		public bool CollapseWarning=true;
 		
 		/// <summary>
 		/// Logs the given message.
@@ -80,70 +82,6 @@ namespace Nitrassic
 		public void Log(string message){
 			Wrench.Log.Add(message);
 		}
-		
-		/// <summary>
-		/// Gets or sets a value that indicates whether the script engine should run in
-		/// compatibility mode.
-		/// </summary>
-		public CompatibilityMode CompatibilityMode
-		{
-			get { return this.compatibilityMode; }
-			set
-			{
-				this.compatibilityMode = value;
-
-				// Infinity, NaN and undefined are writable in ECMAScript 3 and read-only in ECMAScript 5.
-				var attributes = PropertyAttributes.Sealed;
-				if (this.CompatibilityMode == CompatibilityMode.ECMAScript3)
-					attributes = PropertyAttributes.Writable;
-				SetGlobal("Infinity", double.PositiveInfinity, attributes);
-				SetGlobal("NaN", double.NaN, attributes);
-				SetGlobal("undefined", Undefined.Value, attributes);
-			}
-		}
-
-		/// <summary>
-		/// Gets or sets a value that indicates whether to disassemble any generated IL and store it
-		/// in the associated function.
-		/// </summary>
-		public bool EnableILAnalysis;
-		
-		/// <summary>
-		/// Gets a value that indicates whether the script engine must run in a low privilege environment.
-		/// </summary>
-		internal static bool LowPrivilegeEnvironment
-		{
-			get { return true; }
-		}
-
-		/// <summary>
-		/// Indicates that the current AppDomain is a low privilege environment.
-		/// </summary>
-		internal static void SetLowPrivilegeEnvironment()
-		{
-		}
-		
-		[ThreadStatic]
-		private static ScriptEngine deserializationEnvironment;
-
-		/// <summary>
-		/// Gets or sets the script engine to use when deserializing objects.  This property is a
-		/// per-thread setting; it must be set on the thread that is doing the deserialization.
-		/// </summary>
-		public static ScriptEngine DeserializationEnvironment
-		{
-			get { return deserializationEnvironment; }
-			set { deserializationEnvironment = value; }
-		}
-		
-		//	 DEBUGGING SUPPORT
-		//_________________________________________________________________________________________
-
-		/// <summary>
-		/// Gets or sets a value which indicates whether debug information should be generated.  If
-		/// this is set to <c>true</c> performance and memory usage are negatively impacted.
-		/// </summary>
-		public bool EnableDebugging;
 		
 		//	 EXECUTION
 		//_________________________________________________________________________________________
@@ -170,23 +108,22 @@ namespace Nitrassic
 			Nitrassic.Compiler.OptimizationInfo info=new Nitrassic.Compiler.OptimizationInfo(this);
 			
 			// Parse
-			if (this.ParsingStarted != null)
-				this.ParsingStarted(this, EventArgs.Empty);
 			methodGen.Parse(info);
-
-			// Optimize
-			if (this.OptimizationStarted != null)
-				this.OptimizationStarted(this, EventArgs.Empty);
-			methodGen.Optimize();
-
-			// Generate code
-			if (this.CodeGenerationStarted != null)
-				this.CodeGenerationStarted(this, EventArgs.Empty);
-			methodGen.GenerateCode(null,info,"");
-			VerifyGeneratedCode();
 			
-			// Bake the type now:
-			reflectionEmitInfo.MainType.CreateType();
+			// Generate code
+			methodGen.GenerateCode(null,info);
+			
+			// Bake all the prototypes:
+			Prototypes.CompleteAll();
+			
+			// Bake the types now:
+			reflectionEmitInfo.Close();
+			
+			// Instance a global scope object (for use by this):
+			Global=GlobalPrototype.Instance();
+			
+			// Started!
+			Started();
 			
 			return new CompiledScript(methodGen);
 		}
@@ -236,61 +173,16 @@ namespace Nitrassic
 			var compiledScript = Compile(source);
 
 			// ...and execute it.
-			if (this.ExecutionStarted != null)
-				this.ExecutionStarted(this, EventArgs.Empty);
 			compiledScript.Execute();
 		}
-
-		/// <summary>
-		/// Verifies the generated byte code.
-		/// </summary>
-		[System.Diagnostics.Conditional("DEBUG")]
-		private void VerifyGeneratedCode()
-		{
-#if false
-			if (this.EnableDebugging == false)
-				return;
-
-			var filePath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "NitroDebug.dll");
-
-			// set the entry point for the application and save it
-			this.ReflectionEmitInfo.AssemblyBuilder.Save(System.IO.Path.GetFileName(filePath));
-
-			// Copy this DLL there as well.
-			var assemblyPath = System.Reflection.Assembly.GetExecutingAssembly().Location;
-			System.IO.File.Copy(assemblyPath, System.IO.Path.Combine(System.IO.Path.GetDirectoryName(filePath), System.IO.Path.GetFileName(assemblyPath)), true);
-
-			var startInfo = new System.Diagnostics.ProcessStartInfo();
-			startInfo.FileName = @"C:\Program Files (x86)\Microsoft SDKs\Windows\v7.0A\Bin\NETFX 4.0 Tools\x64\PEVerify.exe";
-			startInfo.Arguments = string.Format("\"{0}\" /nologo /verbose /unique", filePath);
-			startInfo.CreateNoWindow = true;
-			startInfo.RedirectStandardOutput = true;
-			startInfo.UseShellExecute = false;
-			var verifyProcess = System.Diagnostics.Process.Start(startInfo);
-			string output = verifyProcess.StandardOutput.ReadToEnd();
-
-			if (verifyProcess.ExitCode != 0)
-			{
-				throw new InvalidOperationException(output);
-			}
-			//else
-			//{
-			//	System.Diagnostics.Process.Start(@"C:\Program Files\Reflector\Reflector.exe", string.Format("\"{0}\" /select:JavaScriptClass", filePath));
-			//	Environment.Exit(0);
-			//}
-
-			// The assembly can no longer be modified - so don't use it again.
-			this.ReflectionEmitInfo = null;
-#endif
-		}
-
+		
 		/// <summary>
 		/// Creates a CompilerOptions instance using the script engine properties.
 		/// </summary>
 		/// <returns> A populated CompilerOptions instance. </returns>
 		private Compiler.CompilerOptions CreateOptions()
 		{
-			return new Compiler.CompilerOptions() { ForceStrictMode = this.ForceStrictMode, EnableDebugging = this.EnableDebugging };
+			return new Compiler.CompilerOptions() { ForceStrictMode = ScriptEngine.ForceStrictMode, EnableDebugging = ScriptEngine.EnableDebugging };
 		}
 
 
@@ -309,7 +201,8 @@ namespace Nitrassic
 		{
 			if (variableName == null)
 				throw new ArgumentNullException("variableName");
-			return Global.HasProperty(variableName);
+			
+			return (GlobalPrototype[variableName]!=null);
 		}
 
 		/// <summary>
@@ -321,7 +214,16 @@ namespace Nitrassic
 		{
 			if (variableName == null)
 				throw new ArgumentNullException("variableName");
-			return TypeUtilities.NormalizeValue(Global.GetValue(variableName));
+			
+			PropertyVariable prop=GlobalPrototype[variableName];
+			
+			if(prop==null){
+				throw new ArgumentNullException("'"+variableName+"' is not a global.");
+			}
+			
+			object value=prop.GetValue(Global);
+			
+			return TypeUtilities.NormalizeValue(value);
 		}
 
 		/// <summary>
@@ -338,7 +240,7 @@ namespace Nitrassic
 		{
 			if (variableName == null)
 				throw new ArgumentNullException("variableName");
-			return TypeConverter.ConvertTo<T>(this, TypeUtilities.NormalizeValue(Global.GetValue(variableName)));
+			return TypeConverter.ConvertTo<T>(this, TypeUtilities.NormalizeValue(GlobalPrototype.GetProperty(variableName).GetValue(Global)));
 		}
 
 		/// <summary>
@@ -360,8 +262,7 @@ namespace Nitrassic
 		/// exist, it will be created.
 		/// </summary>
 		/// <param name="variableName"> The name of the variable to set. </param>
-		/// <param name="value"> The desired value of the variable.  This must be of a supported
-		/// type (bool, int, double, string, Null, Undefined or a ObjectInstance-derived type). </param>
+		/// <param name="value"> The desired value of the variable. </param>
 		/// <param name="attribs">The attributes of the value.</param>
 		/// <exception cref="JavaScriptException"> The property is read-only or the property does
 		/// not exist and the object is not extensible. </exception>
@@ -372,10 +273,75 @@ namespace Nitrassic
 				value=Null.Value;
 			}
 			
-			Nitrassic.Compiler.GlobalVariable globalVariable=Global.SetValue(variableName, value);
-			globalVariable.Attributes=attribs;
+			// Try getting the property:
+			PropertyVariable pv=GlobalPrototype[variableName];
+			
+			if(pv==null){
+				// Create it:
+				pv=GlobalPrototype.AddProperty(variableName,value,attribs);
+			}
+			
+			// Await/ set now:
+			AwaitStart(new AwaitingStart(pv,value));
 			
 		}
+		
+		internal void AwaitStart(AwaitingStart aws){
+			
+			if(HasStarted){
+				
+				// Global is currently settable.
+				aws.OnStart(this);
+				
+			}else{
+			
+				if(AwaitingSet==null){
+					AwaitingSet=new List<AwaitingStart>();
+				}
+				
+				// Add to group of vars awaiting set
+				// (this happens because we can't actually set the globals value yet - we must wait for it to be fully compiled):
+				AwaitingSet.Add(aws);
+				
+			}
+			
+		}
+		
+		/// <summary>Creates a global of the given type.</summary>
+		public PropertyVariable SetGlobalType(string variableName,Type type,PropertyAttributes attribs){
+			
+			// Create it:
+			return GlobalPrototype.AddProperty(variableName,attribs,type);
+			
+		}
+		
+		/// <summary>True if the code has been compiled and the global scope is ready to go.</summary>
+		public bool HasStarted{
+			get{
+				return (Global!=null);
+			}
+		}
+		
+		public void Started(){
+			
+			// Run everything in the waiting set:
+			if(AwaitingSet==null){
+				return;
+			}
+			
+			for(int i=0;i<AwaitingSet.Count;i++){
+				
+				// Start it:
+				AwaitingSet[i].OnStart(this);
+				
+			}
+			
+			// Clear set:
+			AwaitingSet=null;
+			
+		}
+		
+		internal List<AwaitingStart> AwaitingSet;
 		
 		/// <summary>
 		/// Calls a global function and returns the result.
@@ -389,10 +355,9 @@ namespace Nitrassic
 				throw new ArgumentNullException("functionName");
 			if (argumentValues == null)
 				throw new ArgumentNullException("argumentValues");
-			var value = Global.GetValue(functionName) as System.Reflection.MethodInfo;
-			if (value == null)
-				throw new InvalidOperationException(string.Format("'{0}' is not a function.", functionName));
-			return value.Invoke(null, argumentValues);
+				
+			return GlobalPrototype.CallMemberFunctionOn(null,functionName,argumentValues);
+			
 		}
 
 		/// <summary>
@@ -429,52 +394,16 @@ namespace Nitrassic
 
 
 
-		//	 TIMING EVENTS
-		//_________________________________________________________________________________________
-
-		/// <summary>
-		/// Fires when the compiler starts parsing javascript source code.
-		/// </summary>
-		public event EventHandler ParsingStarted;
-
-		/// <summary>
-		/// Fires when the compiler starts optimizing.
-		/// </summary>
-		public event EventHandler OptimizationStarted;
-
-		/// <summary>
-		/// Fires when the compiler starts generating byte code.
-		/// </summary>
-		public event EventHandler CodeGenerationStarted;
-
-		/// <summary>
-		/// Fires when the compiler starts running javascript code.
-		/// </summary>
-		public event EventHandler ExecutionStarted;
-		
 		//	 STACK TRACE SUPPORT
 		//_________________________________________________________________________________________
 		
 		/// <summary>
 		/// Creates a stack trace.
 		/// </summary>
-		/// <param name="errorName"> The name of the error (e.g. "ReferenceError"). </param>
-		/// <param name="message"> The error message. </param>
-		/// <param name="path"> The path of the javascript source file that is currently executing. </param>
-		/// <param name="function"> The name of the currently executing function. </param>
-		/// <param name="line"> The line number of the statement that is currently executing. </param>
-		internal string FormatStackTrace(string errorName, string message, string path, string function, int line, int depth)
+		/// <param name="depth"> The number of stack frames to ignore. </param>
+		internal string FormatStackTrace(int depth)
 		{
-			System.Text.StringBuilder result = new System.Text.StringBuilder(errorName);
-			
-			if (string.IsNullOrEmpty(message) == false)
-			{
-				result.Append(": ");
-				result.Append(message);
-			}
-			
-			if (path != null || function != null || line != 0)
-				AppendStackFrame(result, path, function, line, 0);
+			System.Text.StringBuilder result = new System.Text.StringBuilder();
 			
 			System.Diagnostics.StackTrace trace=new System.Diagnostics.StackTrace(depth+1,true);
 			
@@ -482,7 +411,13 @@ namespace Nitrassic
 				
 				System.Diagnostics.StackFrame frame=trace.GetFrame(f);
 				
-				AppendStackFrame(result, frame.GetFileName(), frame.GetMethod().Name, frame.GetFileLineNumber(), frame.GetFileColumnNumber());
+				string methodName=frame.GetMethod().Name;
+				
+				AppendStackFrame(result, frame.GetFileName(), methodName, frame.GetFileLineNumber(), frame.GetFileColumnNumber());
+				
+				if(methodName=="__.main"){
+					break;
+				}
 				
 			}
 			
@@ -498,27 +433,33 @@ namespace Nitrassic
 		/// <param name="line"> The line number of the statement. </param>
 		private void AppendStackFrame(System.Text.StringBuilder result, string path, string function, int line, int column)
 		{
-			result.AppendLine();
-			result.Append("	");
-			result.Append("at ");
-			if (string.IsNullOrEmpty(function) == false)
+			
+			if(function=="__.main"){
+				
+			}else if (!string.IsNullOrEmpty(function))
 			{
 				result.Append(function);
-				result.Append(" (");
+			}else{
+				result.Append("anonymous");
 			}
-			result.Append(path ?? "unknown");
+			
+			result.Append("@");
+			
+			result.Append(path ?? "unknown path");
+			
 			if (line > 0)
 			{
 				result.Append(":");
 				result.Append(line);
 				
 				if(column > 0){
-					result.Append(", ");
+					result.Append(":");
 					result.Append(column);
 				}
 			}
-			if (string.IsNullOrEmpty(function) == false)
-				result.Append(")");
+			
+			result.AppendLine();
+			
 		}
 		
 	}

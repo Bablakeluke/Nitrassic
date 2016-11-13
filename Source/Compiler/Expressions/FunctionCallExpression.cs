@@ -10,6 +10,11 @@ namespace Nitrassic.Compiler
 	{
 		
 		/// <summary>
+		/// The UDF, if it is one.
+		/// </summary>
+		private Library.UserDefinedFunction UserDefined;
+		
+		/// <summary>
 		/// The resolved method being called, if possible to directly resolve it.
 		/// This is either a MethodBase or MethodGroup.
 		/// </summary>
@@ -23,7 +28,20 @@ namespace Nitrassic.Compiler
 			: base(@operator)
 		{
 		}
-
+		
+		/// <summary>If this is a user defined method, the instance type. It's the type used when 
+		/// doing e.g. new funcName();</summary>
+		public Type InstanceType(ScriptEngine engine){
+			return UserDefined.GetInstanceType(engine);
+		}
+		
+		/// <summary>True if this is known to be calling a user defined function.</summary>
+		public bool IsUserDefined{
+			get{
+				return (UserDefined!=null);
+			}
+		}
+		
 		/// <summary>
 		/// Gets an expression that evaluates to the function instance.
 		/// </summary>
@@ -38,12 +56,10 @@ namespace Nitrassic.Compiler
 		public override Type GetResultType(OptimizationInfo optimizationInfo)
 		{
 			
-			if(ResolvedMethod==null)
-			{
-				Resolve(optimizationInfo);
-			}
+			// Grab if this is a 'new' call:
+			bool isConstructor=optimizationInfo.IsConstructCall;
 			
-			// Clear ICC:
+			// Grab if this is a 'new' call:
 			optimizationInfo.IsConstructCall=false;
 			
 			if(ResolvedMethod==null)
@@ -68,7 +84,7 @@ namespace Nitrassic.Compiler
 				result=methodInfo.ReturnType;
 			}
 			
-			if(result==typeof(void))
+			if(result==null || result==typeof(void))
 			{
 				return typeof(Nitrassic.Undefined);
 			}
@@ -102,8 +118,20 @@ namespace Nitrassic.Compiler
 		/// <summary>
 		/// Resolves which function is being called where possible.
 		/// </summary>
-		internal void Resolve(OptimizationInfo optimizationInfo)
+		internal override void ResolveVariables(OptimizationInfo optimizationInfo)
 		{
+			
+			if(ResolvedMethod!=null || UserDefined!=null){
+				// Already resolved.
+				return;
+			}
+			
+			// Grab if this is a 'new' call:
+			bool isConstructor=optimizationInfo.IsConstructCall;
+			optimizationInfo.IsConstructCall=false;
+			
+			// Resolve kids:
+			base.ResolveVariables(optimizationInfo);
 			
 			object resolvedMethod=null;
 			
@@ -114,70 +142,145 @@ namespace Nitrassic.Compiler
 				// Get the parent of the member (e.g. Math):
 				MemberAccessExpression baseExpression = ((MemberAccessExpression)this.Target);
 				
-				// Ask it to resolve if needed:
-				if(baseExpression.ResolvedProperty==null)
-				{
-					baseExpression.Resolve(optimizationInfo);
-				}
-				
 				// Get the property:
-				Nitrassic.Library.PropertyVariable property=baseExpression.ResolvedProperty;
+				Nitrassic.Library.PropertyVariable property=baseExpression.GetProperty(optimizationInfo);
 				
 				// It should be a callable method:
 				if(property.Type==typeof(MethodGroup) || typeof(System.Reflection.MethodBase).IsAssignableFrom(property.Type))
 				{
-					// Great, grab the value:
-					resolvedMethod=property.Value;
 					
-					if(resolvedMethod==null)
-					{
+					if(property.IsConstant){
+						
+						// Great, grab the value:
+						resolvedMethod=property.ConstantValue;
+						
+					}else{
+						
 						// This occurs when the method has collapsed.
 						// The property is still a method though, so we know for sure it can be invoked.
 						// It's now an instance property on the object.
-						#warning runtime method property
+						optimizationInfo.TypeError("Runtime method in use (not supported at the moment). Internal: #T1");
+						
 					}
 					
 				}
-				else if(property.Type!=typeof(object))
+				else if(property.Type==typeof(FunctionMethodGenerator)){
+					
+					FunctionMethodGenerator fm=property.ConstantValue as FunctionMethodGenerator;
+					
+					if(fm!=null){
+						
+						// Get the arg types being passed into the method, including 'this':
+						Type[] argTypes=GetArgumentTypes(optimizationInfo,true,isConstructor?fm:null);
+						
+						// Get a specific overload:
+						Library.UserDefinedFunction udm=fm.GetCompiled(argTypes,optimizationInfo.Engine,isConstructor);
+						
+						resolvedMethod=udm.body;
+						UserDefined=udm;
+						
+					}else{
+						
+						// Runtime resolve (property)
+						optimizationInfo.TypeError("Runtime property in use (not supported at the moment). Internal: #T4");
+					
+					}
+					
+				}else if(property.Type!=typeof(object))
 				{
 					throw new JavaScriptException(
 						optimizationInfo.Engine,
 						"TypeError",
-						"Cannot run '"+property.Name+"' as a method because it's a "+property.Type+"."
+						"Cannot run '"+property.Name+"' as a method because it's known to be a "+property.Type+"."
 					);
 				}
 				else
 				{
-					#warning runtime resolve
+					
 					// Similar to above, but this time its something that might not even be a method
+					optimizationInfo.TypeError("Runtime method in use (not supported at the moment). Internal: #T2");
+					
 				}
 			}
 			
 			if(resolvedMethod==null)
 			{
-				// Something else (e.g. "eval()")
 				
-				// Get the return type:
-				Type returnType=Target.GetResultType(optimizationInfo);
+				// Get target as a name expression:
+				NameExpression nameExpr=Target as NameExpression;
 				
-				// Get the proto for it:
-				Nitrassic.Library.Prototype proto=optimizationInfo.Engine.Prototypes.Get(returnType);
-				
-				// Note that these two special methods are always methods
-				// or method groups so no checking is necessary.
-				if(optimizationInfo.IsConstructCall)
-				{
-					resolvedMethod=proto.OnConstruct;
-				}
-				else
-				{
-					resolvedMethod=proto.OnCall;
+				if(nameExpr!=null && nameExpr.Variable!=null){
+					
+					if(nameExpr.Variable.IsConstant){
+						
+						FunctionMethodGenerator fm=nameExpr.Variable.ConstantValue as FunctionMethodGenerator;
+						
+						if(fm!=null){
+							
+							// Get the arg types being passed into the method, including 'this':
+							Type[] argTypes=GetArgumentTypes(optimizationInfo,true,isConstructor?fm:null);
+							
+							// Get a specific overload:
+							Library.UserDefinedFunction udm=fm.GetCompiled(argTypes,optimizationInfo.Engine,isConstructor);
+							
+							resolvedMethod=udm.body;
+							UserDefined=udm;
+							
+						}else{
+							
+							// This is a constructor for a built-in type.
+							
+							// Get the return type:
+							Type returnType=Target.GetResultType(optimizationInfo);
+							
+							// Get the proto for it:
+							Nitrassic.Library.Prototype proto=optimizationInfo.Engine.Prototypes.Get(returnType);
+							
+							// Note that these two special methods are always methods
+							// or method groups so no checking is necessary.
+							if(isConstructor)
+							{
+								resolvedMethod=proto.OnConstruct;
+							}
+							else
+							{
+								resolvedMethod=proto.OnCall;
+							}
+							
+						}
+						
+					}else{
+						
+						#warning runtime resolve here.
+						// -> E.g. new varName() or varName()
+						optimizationInfo.TypeError("Runtime resolve in use (not supported at the moment). Internal: #T5");
+						
+					}
+					
+				}else{
+					
+					// Something else (e.g. "eval()")
+					
+					// Get the return type:
+					Type returnType=Target.GetResultType(optimizationInfo);
+					
+					// Get the proto for it:
+					Nitrassic.Library.Prototype proto=optimizationInfo.Engine.Prototypes.Get(returnType);
+					
+					// Note that these two special methods are always methods
+					// or method groups so no checking is necessary.
+					if(isConstructor)
+					{
+						resolvedMethod=proto.OnConstruct;
+					}
+					else
+					{
+						resolvedMethod=proto.OnCall;
+					}
+					
 				}
 				
 			}
-			
-			// Clear ICC:
-			optimizationInfo.IsConstructCall=false;
 			
 			if(resolvedMethod==null)
 			{
@@ -196,11 +299,10 @@ namespace Nitrassic.Compiler
 			}
 			else
 			{
-				// We have a group! Find the overload that we're after:
-				Type[] argTypes=GetArgumentTypes(optimizationInfo);
 				
-				// Resolve it:
-				ResolvedMethod=group.Match(argTypes);
+				// We have a group! Find the overload that we're after (excluding 'this' and it's never a constructor either):
+				ResolvedMethod=group.Match( GetArgumentTypes(optimizationInfo,false,null) );
+				
 			}
 			
 		}
@@ -212,22 +314,72 @@ namespace Nitrassic.Compiler
 		/// <param name="optimizationInfo"> Information about any optimizations that should be performed. </param>
 		public override void GenerateCode(ILGenerator generator, OptimizationInfo optimizationInfo)
 		{
-			// Check if this is a direct call to eval().
+			
+			// Get the target as a name expression:
 			NameExpression nameExpr=Target as NameExpression;
 			
-			if(ResolvedMethod==null)
-			{
-				// Try resolving it:
-				Resolve(optimizationInfo);
-			}
+			// Grab if this is a 'new' call:
+			bool isConstructor=optimizationInfo.IsConstructCall;
+			
+			optimizationInfo.IsConstructCall=false;
 			
 			if(ResolvedMethod!=null)
 			{
 				// We have a known method!
 				
-				// Emit the args:
+				if(UserDefined!=null){
+					
+					if(isConstructor){
+						
+						// Generate code to produce the "this" value.
+						Library.Prototype proto=UserDefined.GetInstancePrototype(optimizationInfo.Engine);
+						
+						// Create the object now:
+						generator.NewObject(proto.TypeConstructor);
+						
+						// Duplicate (which will act as our return value):
+						if(optimizationInfo.RootExpression!=this){
+							
+							generator.Duplicate();
+							
+						}
+						
+					}else{
+						
+						// There are three cases for non-constructor calls.
+						if (this.Target is NameExpression)
+						{
+							// 1. The function is a name expression (e.g. "parseInt()").
+							//	In this case this = scope.ImplicitThisValue, if there is one, otherwise undefined.
+							((NameExpression)this.Target).GenerateThis(generator);
+						}
+						else if (this.Target is MemberAccessExpression)
+						{
+							
+							// 2. The function is a member access expression (e.g. "Math.cos()").
+							//	In this case this = Math.
+							var baseExpression = ((MemberAccessExpression)this.Target).Base;
+							baseExpression.GenerateCode(generator, optimizationInfo);
+							EmitConversion.ToAny(generator, baseExpression.GetResultType(optimizationInfo));
+							
+						}
+						else
+						{
+							// 3. Neither of the above (e.g. "(function() { return 5 })()")
+							//	In this case this = undefined.
+							EmitHelpers.EmitUndefined(generator);
+						}
+						
+					}
+					
+				}
+				
+				// Emit the rest of the args:
 				EmitArguments(generator,optimizationInfo);
-			
+				
+				// Got a return type?
+				Type returnType=GetResultType(optimizationInfo);
+				
 				// Then the call!
 				if(typeof(System.Reflection.ConstructorInfo).IsAssignableFrom(ResolvedMethod.GetType()))
 				{
@@ -236,135 +388,134 @@ namespace Nitrassic.Compiler
 				}
 				else
 				{
+					
 					// Ordinary method:
 					generator.Call(ResolvedMethod);
 				}
 				
-				// Got a return type?
-				Type returnType=GetResultType(optimizationInfo);
-				
-				if(returnType==typeof(Nitrassic.Undefined))
-				{
-					// Put undef on the stack:
-					EmitHelpers.EmitUndefined(generator);
+				if(isConstructor){
+					
+					// Always a returned value here. Needed?
+					if(optimizationInfo.RootExpression==this)
+					{
+						
+						// Remove the return value:
+						generator.Pop();
+						
+					}
+					
+				}else{
+					
+					if(returnType==typeof(Nitrassic.Undefined))
+					{
+						
+						if(optimizationInfo.RootExpression!=this){
+							
+							// Put undef on the stack:
+							EmitHelpers.EmitUndefined(generator);
+							
+						}
+						
+					}else if(optimizationInfo.RootExpression==this){
+						
+						// Remove the return value:
+						generator.Pop();
+						
+					}
+					
 				}
 				
-			}
-			else
-			{
-				// Either runtime resolve it or it's not actually a callable function
-			}
-			/*
-			// Emit the function instance first.
-			ILLocalVariable targetBase = null;
-			if (this.Target is MemberAccessExpression)
-			{
-				// The function is a member access expression (e.g. "Math.cos()").
-
-				// Evaluate the left part of the member access expression.
-				var baseExpression = ((MemberAccessExpression)this.Target).Base;
-				baseExpression.GenerateCode(generator, optimizationInfo);
-				EmitConversion.ToAny(generator, baseExpression.GetResultType(optimizationInfo));
-				targetBase = generator.CreateTemporaryVariable(typeof(object));
-				generator.StoreVariable(targetBase);
-
-				// Evaluate the right part of the member access expression.
-				var memberAccessExpression = new MemberAccessExpression(((MemberAccessExpression)this.Target).Operator);
-				memberAccessExpression.Push(new TemporaryVariableExpression(targetBase));
-				memberAccessExpression.Push(((MemberAccessExpression)this.Target).GetOperand(1));
-				memberAccessExpression.GenerateCode(generator, optimizationInfo);
-				EmitConversion.ToAny(generator, this.Target.GetResultType(optimizationInfo));
-			}
-			else
-			{
-				// Something else (e.g. "eval()").
-				this.Target.GenerateCode(generator, optimizationInfo);
-				EmitConversion.ToAny(generator, this.Target.GetResultType(optimizationInfo));
-			}
-
-			// Check the object really is a function - if not, throw an exception.
-			generator.IsInstance(typeof(Library.FunctionInstance));
-			generator.Duplicate();
-			var endOfTypeCheck = generator.CreateLabel();
-			generator.BranchIfNotNull(endOfTypeCheck);
-
-			// Throw an nicely formatted exception.
-			generator.Pop();
-			
-			if(nameExpr==null){
-				EmitHelpers.EmitThrow(generator, "TypeError", "'[Object]' is not a function");
 			}else{
-				EmitHelpers.EmitThrow(generator, "TypeError", "'"+nameExpr.Name+"' is not a function");
+				// Either runtime resolve it or it's not actually a callable function
+				throw new NotImplementedException("A function was called which was not supported ("+ToString()+")");
 			}
 			
-			generator.DefineLabelPosition(endOfTypeCheck);
+		}
+		
+		public Type GetThisType(OptimizationInfo optimizationInfo,FunctionMethodGenerator methodGenerator){
 			
-			// Generate code to produce the "this" value.  There are three cases.
-			if (this.Target is NameExpression)
-			{
-				// 1. The function is a name expression (e.g. "parseInt()").
-				//	In this case this = scope.ImplicitThisValue, if there is one, otherwise undefined.
-				((NameExpression)this.Target).GenerateThis(generator);
+			// Note: This can't rely on either UserDefined or ResolvedMethod.
+			// If methodGenerator is set then this is a new x() call, where x is always a user defined method.
+			
+			if(methodGenerator!=null){
+				
+				// This is a constructor call. The 'this' type is the same as the generators instance prototype:
+				return methodGenerator.GetInstancePrototype(optimizationInfo.Engine).Type;
+				
 			}
-			else if (this.Target is MemberAccessExpression)
+			
+			
+			return typeof(object);
+			
+		}
+		
+		/// <summary>
+		/// Generates an array containing the argument values for a tagged template literal.
+		/// </summary>
+		/// <param name="generator"> The generator to output the CIL to. </param>
+		/// <param name="optimizationInfo"> Information about any optimizations that should be performed. </param>
+		/// <param name="templateLiteral"> The template literal expression containing the parameter
+		/// values. </param>
+		internal void GenerateTemplateArgumentsArray(ILGenerator generator, OptimizationInfo optimizationInfo, TemplateLiteralExpression templateLiteral)
+		{
+			
+			#warning change this.
+			
+			// Generate an array containing the value of each argument.
+			generator.LoadInt32(templateLiteral.Values.Count + 1);
+			generator.NewArray(typeof(object));
+
+			// Load the first parameter.
+			generator.Duplicate();
+			generator.LoadInt32(0);
+			
+			// The first parameter to the tag function is an array of strings.
+			var stringsExpression = new List<Expression>(templateLiteral.Strings.Count);
+			foreach (var templateString in templateLiteral.Strings)
 			{
-				// 2. The function is a member access expression (e.g. "Math.cos()").
-				//	In this case this = Math.
-				//var baseExpression = ((MemberAccessExpression)this.Target).Base;
-				//baseExpression.GenerateCode(generator, optimizationInfo);
-				//EmitConversion.ToAny(generator, baseExpression.GetResultType(optimizationInfo));
-				generator.LoadVariable(targetBase);
+				stringsExpression.Add(new LiteralExpression(templateString));
 			}
-			else
+			new LiteralExpression(stringsExpression).GenerateCode(generator, optimizationInfo);
+			generator.Duplicate();
+
+			// Now we need the name of the property.
+			generator.LoadString("raw");
+
+			// Now generate an array of raw strings.
+			var rawStringsExpression = new List<Expression>(templateLiteral.RawStrings.Count);
+			foreach (var rawString in templateLiteral.RawStrings)
 			{
-				// 3. Neither of the above (e.g. "(function() { return 5 })()")
-				//	In this case this = undefined.
-				EmitHelpers.EmitUndefined(generator);
+				rawStringsExpression.Add(new LiteralExpression(rawString));
 			}
+			new LiteralExpression(rawStringsExpression).GenerateCode(generator, optimizationInfo);
 
-			// Emit an array containing the function arguments.
-			GenerateArgumentsArray(generator, optimizationInfo);
+			// Freeze array by calling ObjectInstance Freeze(ObjectInstance).
+			// generator.CallStatic(ReflectionHelpers.ObjectConstructor_Freeze);
 
-			// Call FunctionInstance.CallLateBound(thisValue, argumentValues)
-			generator.Call(ReflectionHelpers.FunctionInstance_CallLateBound);
-
-			// Allow reuse of the temporary variable.
-			if (targetBase != null)
-				generator.ReleaseTemporaryVariable(targetBase);
-			*/
+			// Now store the raw strings as a property of the base strings array.
+			// generator.LoadBoolean(optimizationInfo.StrictMode);
+			// generator.Call(ReflectionHelpers.ObjectInstance_SetPropertyValue_Object);
+			
+			// Store in the array.
+			generator.StoreArrayElement(typeof(object));
+			
+			// Values are passed as subsequent parameters.
+			for (int i = 0; i < templateLiteral.Values.Count; i++)
+			{
+				generator.Duplicate();
+				generator.LoadInt32(i + 1);
+				templateLiteral.Values[i].GenerateCode(generator, optimizationInfo);
+				EmitConversion.ToAny(generator, templateLiteral.Values[i].GetResultType(optimizationInfo));
+				generator.StoreArrayElement(typeof(object));
+			}
+			
 		}
 		
 		/// <summary>
 		/// Emits the arguments set.
 		/// </summary>
-		internal void EmitArguments(ILGenerator generator,OptimizationInfo optimizationInfo)
+		private void EmitArguments(ILGenerator generator,OptimizationInfo optimizationInfo)
 		{
-			
-			// - Is the first arg ScriptEngine?
-			// - Does it have thisObj / does it want an instance object?
-			System.Reflection.ParameterInfo[] paraSet=ResolvedMethod.GetParameters();
-			
-			int parameterOffset=0;
-			bool staticMethod=ResolvedMethod.IsStatic || ResolvedMethod.IsConstructor;
-			
-			if(paraSet.Length>0)
-			{
-				
-				if(paraSet[0].ParameterType==typeof(ScriptEngine))
-				{
-					// Emit an engine reference now:
-					EmitHelpers.LoadEngine(generator);
-					
-					parameterOffset=1;
-				}
-				
-				if(paraSet.Length>parameterOffset && paraSet[parameterOffset].Name=="thisObj")
-				{
-					// It's acting like an instance method.
-					parameterOffset=2;
-					staticMethod=false;
-				}
-			}
 			
 			// Get the args:
 			IList<Expression> arguments = null;
@@ -385,78 +536,140 @@ namespace Nitrassic.Compiler
 				}
 			}
 			
-			if(!staticMethod)
-			{
-				// Generate the 'this' ref:
-				var baseExpression = ((MemberAccessExpression)this.Target).Base;
-				baseExpression.GenerateCode(generator, optimizationInfo);
+			int paraCount=0;
+			int parameterOffset=0;
+			bool staticMethod=false;
+			System.Reflection.ParameterInfo[] paraSet=null;
+			IList<ArgVariable> argsSet=null;
+			
+			
+			if(UserDefined==null){
+				
+				// - Is the first arg ScriptEngine?
+				// - Does it have thisObj / does it want an instance object?
+				paraSet=ResolvedMethod.GetParameters();
+				
+				paraCount=paraSet.Length;
+				
+				staticMethod=ResolvedMethod.IsStatic || ResolvedMethod.IsConstructor;
+				
+				if(paraSet.Length>0)
+				{
+					
+					if(paraSet[0].ParameterType==typeof(ScriptEngine))
+					{
+						// Emit an engine reference now:
+						EmitHelpers.LoadEngine(generator);
+						
+						parameterOffset++;
+					}
+					
+					if(paraSet.Length>parameterOffset && paraSet[parameterOffset].Name=="thisObj")
+					{
+						// It's acting like an instance method.
+						parameterOffset++;
+						staticMethod=false;
+					}
+				}
+				
+				if(!staticMethod)
+				{
+					// Generate the 'this' ref:
+					var baseExpression = ((MemberAccessExpression)this.Target).Base;
+					baseExpression.GenerateCode(generator, optimizationInfo);
+				}
+				
+			}else{
+				// These are always static.
+				paraCount=UserDefined.Arguments.Count;
+				
+				argsSet=UserDefined.Arguments;
+				
+				// Skip 'this' - it's emitted separately:
+				parameterOffset=1;
+				
 			}
 			
 			// Next, we're matching params starting from parameterOffset with the args,
 			// type casting if needed.
-			for(int i=parameterOffset;i<paraSet.Length;i++)
+			for(int i=parameterOffset;i<paraCount;i++)
 			{
 				
-				// Get the parameter info:
-				var param=paraSet[i];
-				
-				// Get the parameters type:
-				Type paramType=param.ParameterType;
-				
 				Expression expression=null;
+				object defaultValue=null;
+				Type paramType=null;
 				
-				// Is it a params array?
-				if(Attribute.IsDefined(param, typeof (ParamArrayAttribute)))
-				{
+				if(paraSet==null){
 					
-					// It's always an array - get the element type:
-					paramType=paramType.GetElementType();
+					// Get the type:
+					paramType=argsSet[i].Type;
 					
-					// For each of the remaining args..
-					int offset=i-parameterOffset;
+				}else{
 					
-					int argCount=0;
+					// Get the parameter info:
+					var param=paraSet[i];
 					
-					if(arguments!=null)
+					// Get the parameters type:
+					paramType=param.ParameterType;
+					
+					// Get the default value:
+					defaultValue=param.RawDefaultValue;
+					
+					// Is it a params array?
+					if(Attribute.IsDefined(param, typeof (ParamArrayAttribute)))
 					{
-						// Get the full count:
-						argCount=arguments.Count;
 						
-					}
-					else if(argumentsOperand!=null)
-					{
-						// Just one arg and it's still hanging around.
-						argCount=offset+1;
-					}
-					
-					// Define an array:
-					generator.LoadInt32(argCount);
-					generator.NewArray(paramType);
-					
-					for(int a=offset;a<argCount;a++)
-					{
+						// It's always an array - get the element type:
+						paramType=paramType.GetElementType();
+						
+						// For each of the remaining args..
+						int offset=i-parameterOffset;
+						
+						int argCount=0;
 						
 						if(arguments!=null)
 						{
-							// One of many args:
-							expression=arguments[a];
+							// Get the full count:
+							argCount=arguments.Count;
+							
 						}
-						else
+						else if(argumentsOperand!=null)
 						{
-							// Just one arg:
-							expression=argumentsOperand;
+							// Just one arg and it's still hanging around.
+							argCount=offset+1;
 						}
 						
-						generator.Duplicate();
-						generator.LoadInt32(a-offset);
-						expression.GenerateCode(generator, optimizationInfo);
-						Type res=expression.GetResultType(optimizationInfo);
-						EmitConversion.Convert(generator, res,paramType);
-						generator.StoreArrayElement(paramType);
+						// Define an array:
+						generator.LoadInt32(argCount);
+						generator.NewArray(paramType);
+						
+						for(int a=offset;a<argCount;a++)
+						{
+							
+							if(arguments!=null)
+							{
+								// One of many args:
+								expression=arguments[a];
+							}
+							else
+							{
+								// Just one arg:
+								expression=argumentsOperand;
+							}
+							
+							generator.Duplicate();
+							generator.LoadInt32(a-offset);
+							expression.GenerateCode(generator, optimizationInfo);
+							Type res=expression.GetResultType(optimizationInfo);
+							
+							EmitConversion.Convert(generator, res,paramType);
+							generator.StoreArrayElement(paramType);
+						}
+						
+						// All done - can't be anymore.
+						break;
 					}
-					
-					// All done - can't be anymore.
-					break;
+				
 				}
 				
 				if(arguments!=null && (i-parameterOffset)<=arguments.Count)
@@ -477,10 +690,10 @@ namespace Nitrassic.Compiler
 				if(expression==null)
 				{
 					// Emit whatever the default is for the parameters type:
-					if(param.RawDefaultValue!=null)
+					if(defaultValue!=null)
 					{
 						// Emit the default value:
-						EmitHelpers.EmitValue(generator,param.RawDefaultValue);
+						EmitHelpers.EmitValue(generator,defaultValue);
 					}
 					else if(paramType.IsValueType)
 					{
@@ -493,8 +706,16 @@ namespace Nitrassic.Compiler
 						generator.LoadNull();
 					}
 				}
+				else if (expression is TemplateLiteralExpression)
+                {
+                    // Tagged template literal.
+                    TemplateLiteralExpression templateLiteral = (TemplateLiteralExpression)expression;
+                    GenerateTemplateArgumentsArray(generator, optimizationInfo, templateLiteral);
+					return;
+				}
 				else
 				{
+				
 					// Output the arg:
 					expression.GenerateCode(generator, optimizationInfo);
 				
@@ -509,7 +730,7 @@ namespace Nitrassic.Compiler
 		/// <summary>
 		/// Gets the set of types for each argument.
 		/// </summary>
-		internal Type[] GetArgumentTypes(OptimizationInfo optimizationInfo)
+		internal Type[] GetArgumentTypes(OptimizationInfo optimizationInfo,bool includeThis,FunctionMethodGenerator methodGenerator)
 		{
 			
 			// Get the args:
@@ -522,10 +743,20 @@ namespace Nitrassic.Compiler
 				
 				if (argList==null)
 				{
-					// Just one:
+					// Just one (or two, if it includes 'this'):
+					if(includeThis){
+						
+						return new Type[]{
+							GetThisType(optimizationInfo,methodGenerator),
+							argumentsOperand.GetResultType(optimizationInfo)
+						};
+						
+					}
+					
 					return new Type[]{
 						argumentsOperand.GetResultType(optimizationInfo)
 					};
+					
 				}
 				
 				// Multiple parameters were recieved.
@@ -536,16 +767,40 @@ namespace Nitrassic.Compiler
 				
 				int count=arguments.Count;
 				
+				// Include 'this' if needed:
+				if(includeThis){
+					
+					count++;
+					
+				}
+				
 				// Create the type set:
 				Type[] result=new Type[count];
 				
+				int start=0;
+				
+				if(includeThis){
+					
+					// Get the 'this' type:
+					start=1;
+					result[0]=GetThisType(optimizationInfo,methodGenerator);
+					
+				}
+				
 				// Get the result type of each one:
-				for(int i=0;i<count;i++)
+				for(int i=start;i<count;i++)
 				{
-					result[i]=arguments[i].GetResultType(optimizationInfo);
+					result[i]=arguments[i-start].GetResultType(optimizationInfo);
 				}
 				
 				return result;
+				
+			}
+			
+			// Possibly just the 'this' keyword, if it's a UserDef:
+			if(includeThis){
+				
+				return new Type[]{GetThisType(optimizationInfo,methodGenerator)};
 				
 			}
 			

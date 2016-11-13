@@ -39,7 +39,7 @@ namespace Nitrassic{
 		/// <summary>
 		/// Gets the built-in Date constructor.
 		/// </summary>
-		public MethodBase Date;
+		public Prototype Date;
 		
 		/// <summary>
 		/// Gets the built-in Function constructor.
@@ -56,31 +56,31 @@ namespace Nitrassic{
 		/// <summary>
 		/// Gets the built-in Error constructor.
 		/// </summary>
-		public MethodBase Error;
+		public Prototype Error;
 		/// <summary>
 		/// Gets the built-in RangeError constructor.
 		/// </summary>
-		public MethodBase RangeError;
+		public Prototype RangeError;
 		/// <summary>
 		/// Gets the built-in TypeError constructor.
 		/// </summary>
-		public MethodBase TypeError;
+		public Prototype TypeError;
 		/// <summary>
 		/// Gets the built-in TypeError constructor.
 		/// </summary>
-		public MethodBase SyntaxError;
+		public Prototype SyntaxError;
 		/// <summary>
 		/// Gets the built-in TypeError constructor.
 		/// </summary>
-		public MethodBase URIError;
+		public Prototype URIError;
 		/// <summary>
 		/// Gets the built-in TypeError constructor.
 		/// </summary>
-		public MethodBase EvalError;
+		public Prototype EvalError;
 		/// <summary>
 		/// Gets the built-in TypeError constructor.
 		/// </summary>
-		public MethodBase ReferenceError;
+		public Prototype ReferenceError;
 		
 		/// <summary>
 		/// The parent script engine.
@@ -96,22 +96,28 @@ namespace Nitrassic{
 		public PrototypeLookup(ScriptEngine engine){
 			Engine=engine;
 		}
-			
+		
+		
+		
 		internal void Setup(){
+			
+			// Create the prototype for the global scope:
+			Engine.GlobalPrototype = CreateStatic();
+			
 			// Create the base of the prototype chain:
 			BasePrototype=new Prototype(Engine);
 			
 			// Setup globals:
-			Engine.Global = new Window(Engine);
+			// Engine.Global = new Window(Engine);
 			
 			// Setup the global cache:
 			Engine.ReflectionEmitInfo.SetupGlobalCache();
 			
 			// Setup the object constructor:
-			Object = SetConstructor(typeof(object),out ObjectPrototype);
+			Object = SetConstructor(typeof(object),out ObjectPrototype).CtrInstance;
 			
 			// Setup the function constructor:
-			Function=SetConstructor(typeof(FunctionProto),out FunctionPrototype);
+			Function=SetConstructor(typeof(FunctionProto),out FunctionPrototype).CtrInstance;
 			
 			// Initialize the prototypes for the base of the prototype chain.
 			BasePrototype.AddConstructor(Object);
@@ -123,17 +129,17 @@ namespace Nitrassic{
 			ArrayPrototype=Get(typeof(Nitrassic.Library.Array));
 			
 			Array=ArrayPrototype.Constructor as MethodBase;
-			Date=SetConstructor(typeof(Nitrassic.Library.Date)) as MethodBase;
+			Date=SetConstructor(typeof(Nitrassic.Library.Date));
 			RegExp=RegExpPrototype.Constructor as MethodBase;
 			
 			// Create the error functions.
-			Error = SetConstructor(typeof(Library.Error)) as MethodBase;
-			RangeError = SetConstructor(typeof(RangeError)) as MethodBase;
-			TypeError = SetConstructor(typeof(TypeError)) as MethodBase;
-			SyntaxError = SetConstructor(typeof(SyntaxError)) as MethodBase;
-			URIError = SetConstructor(typeof(URIError)) as MethodBase;
-			EvalError = SetConstructor(typeof(EvalError)) as MethodBase;
-			ReferenceError = SetConstructor(typeof(ReferenceError)) as MethodBase;
+			Error = SetConstructor(typeof(Library.Error));
+			RangeError = SetConstructor(typeof(RangeError));
+			TypeError = SetConstructor(typeof(TypeError));
+			SyntaxError = SetConstructor(typeof(SyntaxError));
+			URIError = SetConstructor(typeof(URIError));
+			EvalError = SetConstructor(typeof(EvalError));
+			ReferenceError = SetConstructor(typeof(ReferenceError));
 			
 			// Create the typed array functions.
 			Get(typeof(ArrayBuffer));
@@ -148,6 +154,7 @@ namespace Nitrassic{
 			SetConstructor(typeof(Uint32Array));
 			SetConstructor(typeof(Float32Array));
 			SetConstructor(typeof(Float64Array));
+			SetConstructor(typeof(ArrayBuffer));
 			
 			Engine.SetGlobal("JSON",new JSON());
 			Engine.SetGlobal("console",new console(Engine));
@@ -155,15 +162,29 @@ namespace Nitrassic{
 			
 		}
 		
+		/// <summary>Creates a new prototype, suitable for adding extra properties to.</summary>
+		public Prototype CreateStatic(){
+			Prototype proto=new Prototype(Engine,"_global",null,true);
+			Lookup[proto.Type]=proto;
+			return proto;
+		}
+		
+		/// <summary>Creates a new prototype, suitable for adding extra properties to.</summary>
+		public Prototype Create(){
+			Prototype proto=new Prototype(Engine,null,null,false);
+			Lookup[proto.Type]=proto;
+			return proto;
+		}
+		
 		/// <summary>Sets the given type as a global constructor.</summary>
-		private object SetConstructor(Type type)
+		private Prototype SetConstructor(Type type)
 		{
 			Prototype prototype;
 			return SetConstructor(type,out prototype);
 		}
 		
 		/// <summary>Sets the given type as a global constructor.</summary>
-		private object SetConstructor(Type type,out Prototype prototype)
+		private Prototype SetConstructor(Type type,out Prototype prototype)
 		{
 			// Get the prototype:
 			prototype=Get(type);
@@ -176,11 +197,13 @@ namespace Nitrassic{
 				throw new Exception("The type '"+type.Name+"' is not constructable.");
 			}
 			
-			// Set the global:
-			Engine.SetGlobal(prototype.Name,ctrProto.CtrInstance);
+			object ctrInstance=ctrProto.CtrInstance;
 			
-			// Return the instance object:
-			return ctrProto.CtrInstance;
+			// Create the global:
+			Engine.SetGlobal(prototype.Name,ctrInstance);
+			
+			// Return it:
+			return ctrProto;
 		}
 		
 		/// <summary>
@@ -210,10 +233,13 @@ namespace Nitrassic{
 		/// Gets or creates the prototype for the given type.
 		/// </summary>
 		public Prototype Get(string typeName,Prototype parentProto){
-			#warning Resolve the given type name into a system type.
-			// (Using existing Nitro framework code)
-			Type type=null;
+			
+			// Get the type:
+			Type type=CodeReference.GetFirstType(typeName);
+			
+			// Resolve the prototype:
 			return Get(type,parentProto);
+			
 		}
 		
 		/// <summary>
@@ -223,17 +249,42 @@ namespace Nitrassic{
 			return Get(type,null);
 		}
 		
+		public void CompleteAll(){
+			
+			foreach(KeyValuePair<Type,Prototype> kvp in Lookup){
+				
+				kvp.Value.Complete();
+				
+			}
+			
+		}
+		
 		/// <summary>
 		/// Gets or creates the prototype for the given type with an optional parent prototype.
 		/// </summary>
 		public Prototype Get(Type type,Prototype parentProto){
 			
-			string name=type.Name;
-			var attribute = (JSProperties)Attribute.GetCustomAttribute(type,typeof(JSProperties),false);
+			if(type==null){
+				return null;
+			}
 			
-			if (attribute != null && attribute.Name!=null)
-			{
-				name=attribute.Name;
+			string name=type.Name;
+			
+			JSProperties attribute;
+			
+			if(type is System.Reflection.Emit.TypeBuilder){
+				
+				attribute=null;
+				
+			}else{
+				
+				attribute = (JSProperties)Attribute.GetCustomAttribute(type,typeof(JSProperties),false);
+				
+				if (attribute != null && attribute.Name!=null)
+				{
+					name=attribute.Name;
+				}
+				
 			}
 			
 			Prototype result;
@@ -260,7 +311,7 @@ namespace Nitrassic{
 			
 			// Create and add it:
 			result=new Prototype(Engine,name,parentProto,type);
-			Lookup[type]=result;
+			Lookup[result.Type]=result;
 			
 			// Does it declare PrototypeFor?
 			FieldInfo protoFor=type.GetField("PrototypeFor");
@@ -303,8 +354,10 @@ namespace Nitrassic{
 					name="_base_object";
 				}
 				
+				Prototype ctr=null;
+				
 				// Build the constructor prototype:
-				Prototype ctr=new Prototype(Engine,name+"_.ctor",null);
+				ctr=new Prototype(Engine,name+"_ctor",null,false);
 				ctr.PopulateConstructorPrototype(type);
 				ctr.AddProperty("constructor",Function,Nitrassic.Library.PropertyAttributes.NonEnumerable);
 				result.ConstructorPrototype=ctr;
@@ -312,12 +365,11 @@ namespace Nitrassic{
 				// ctr is a function instance, so set its base proto:
 				ctr.BasePrototype=FunctionPrototype;
 				
-				// Create the type and add it to the lookup:
-				ctr.Complete();
-				Lookup[ctr.Type]=ctr;
-				
-				// Generate an instance of the ctr:
+				// Generate an instance of the ctr (this also bakes the type):
 				ctr.CtrInstance=ctr.Instance();
+				
+				// Add it to the lookup:
+				Lookup[ctr.Type]=ctr;
 				
 				// Setup the instance proto:
 				result.PopulateInstancePrototype(type);

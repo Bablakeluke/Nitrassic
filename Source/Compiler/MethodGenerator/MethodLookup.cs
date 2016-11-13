@@ -12,7 +12,7 @@ namespace Nitrassic.Compiler
 	public static class MethodLookup
 	{
 		
-		private static Dictionary<long, WeakReference> generatedMethodCache;
+		private static Dictionary<long, FunctionMethodGenerator> generatedMethodCache;
 		private static object cacheLock = new object();
 		private static long generatedMethodID;
 		private const int compactGeneratedCacheCount = 100;
@@ -21,19 +21,17 @@ namespace Nitrassic.Compiler
 		/// Retrieves the code for a generated method, given the ID.  For internal use only.
 		/// </summary>
 		/// <param name="id"> The ID of the generated method. </param>
-		/// <returns> A <c>UserDefinedFunction</c> instance. </returns>
-		public static UserDefinedFunction Load(long id)
+		/// <returns> A <c>FunctionMethodGenerator</c> instance. </returns>
+		public static FunctionMethodGenerator LoadGenerator(long id)
 		{
 			lock (cacheLock)
 			{
 				if (generatedMethodCache == null)
 					throw new InvalidOperationException("Internal error: no generated method cache available.");
-				WeakReference generatedMethodReference;
-				if (generatedMethodCache.TryGetValue(id, out generatedMethodReference) == false)
+				FunctionMethodGenerator generatedMethod;
+				if (generatedMethodCache.TryGetValue(id, out generatedMethod) == false)
 					throw new InvalidOperationException(string.Format("Internal error: generated method {0} was garbage collected.", id));
-				var generatedMethod = (UserDefinedFunction)generatedMethodReference.Target;
-				if (generatedMethod == null)
-					throw new InvalidOperationException(string.Format("Internal error: generated method {0} was garbage collected.", id));
+				
 				return generatedMethod;
 			}
 		}
@@ -45,13 +43,14 @@ namespace Nitrassic.Compiler
 				
 				// Create a cache (if it hasn't already been created).
 				if (generatedMethodCache == null)
-					generatedMethodCache = new Dictionary<long, WeakReference>();
+					generatedMethodCache = new Dictionary<long, FunctionMethodGenerator>();
 
 				long id=generatedMethodID;
 				
 				// Increment the ID for next time.
 				generatedMethodID++;
 				
+				/*
 				// Every X calls to this method, compact the cache by removing any weak references that
 				// point to objects that have been collected.
 				if (generatedMethodID % compactGeneratedCacheCount == 0)
@@ -64,6 +63,7 @@ namespace Nitrassic.Compiler
 					foreach (int expiredID in expiredIDs)
 						generatedMethodCache.Remove(expiredID);
 				}
+				*/
 				
 				// Return the ID that was allocated.
 				return id;
@@ -75,7 +75,7 @@ namespace Nitrassic.Compiler
 		/// <summary>
 		/// A cache for the Search method.
 		/// </summary>
-		public static Dictionary<MethodInfo,UserDefinedFunction> FastSearchCache;
+		internal static Dictionary<MethodInfo,UserDefinedFunction> FastSearchCache;
 		
 		/// <summary>
 		/// Counts how often search is called.
@@ -88,32 +88,34 @@ namespace Nitrassic.Compiler
 		public static UserDefinedFunction Search(MethodInfo mtd)
 		{
 			
-			UserDefinedFunction result;
+			UserDefinedFunction udf;
 			
 			if(FastSearchCache!=null)
 			{
 				
-				if(FastSearchCache.TryGetValue(mtd,out result))
+				if(FastSearchCache.TryGetValue(mtd,out udf))
 				{
-					return result;
+					return udf;
 				}
 				
 			}
 			
 			// SearchCount++;
 			
-			foreach(KeyValuePair<long,WeakReference> kvp in generatedMethodCache)
+			foreach(KeyValuePair<long,FunctionMethodGenerator> kvp in generatedMethodCache)
 			{
 				
-				result=(UserDefinedFunction)kvp.Value.Target;
+				FunctionMethodGenerator fmg=kvp.Value;
 				
-				if(result==null)
+				if(fmg==null)
 				{
 					continue;
 				}
 				
 				// Check if result uses the given method info.
-				if(result.body==mtd)
+				udf=fmg.Find(mtd);
+				
+				if(udf!=null)
 				{
 					// Found it!
 					
@@ -123,9 +125,9 @@ namespace Nitrassic.Compiler
 					}
 					
 					// Add to cache:
-					FastSearchCache[mtd]=result;
+					FastSearchCache[mtd]=udf;
 					
-					return result;
+					return udf;
 				}
 				
 			}
@@ -139,14 +141,13 @@ namespace Nitrassic.Compiler
 		/// </summary>
 		/// <param name="generatedMethod"> The generated method to save. </param>
 		/// <returns> The ID that was associated with the generated method. </returns>
-		public static void SaveAs(long id,UserDefinedFunction generatedMethod)
+		public static void SaveAs(long id,FunctionMethodGenerator generatedMethod)
 		{
 			if (generatedMethod == null)
 				throw new ArgumentNullException("generatedMethod");
 			
-			// Create a weak reference to the generated method and add it to the cache.
-			var weakReference = new WeakReference(generatedMethod);
-			generatedMethodCache.Add(id, weakReference);
+			// Add to cache
+			generatedMethodCache.Add(id, generatedMethod);
 			
 		}
 	}

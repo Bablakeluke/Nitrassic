@@ -26,6 +26,13 @@ namespace Nitrassic.Library
 			
 		}
 		
+		public Float64Array(double length):base(TypedArrayStyle.Float64Array, (int)length){
+			
+			// Create the fast buffer:
+			buffer=new double[Length];
+			
+		}
+		
 		public Float64Array(TypedArray array):base(TypedArrayStyle.Float64Array, array)
 		{
 			
@@ -47,6 +54,8 @@ namespace Nitrassic.Library
 			Add(iterableObj);
 			
 		}
+		
+		public Float64Array(ArrayBuffer buff):this(buff,0,0){}
 		
 		public Float64Array(ArrayBuffer buff,int byteOffset,int length):base(TypedArrayStyle.Float64Array, length==0?buff.ByteLength:length)
 		{

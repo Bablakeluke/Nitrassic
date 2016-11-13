@@ -68,7 +68,10 @@ namespace Nitrassic.Library
 			var message = new System.Text.StringBuilder();
 			for (int i = 0; i < objects.Length; i++)
 			{
-				message.Append(' ');
+				if(i!=0){
+					message.Append(' ');
+				}
+				
 				message.Append(TypeConverter.ToString(objects[i]));
 			}
 

@@ -92,10 +92,24 @@ namespace Nitrassic.Compiler
 		{
 			if (value == null)
 				generator.LoadNull();
+			else if ( value is Nitrassic.Undefined )
+			{
+				EmitHelpers.EmitUndefined(generator);
+			}
 			else if ( value is System.Reflection.MethodBase )
 			{
 				generator.LoadToken(value as System.Reflection.MethodBase);
 				generator.Call(ReflectionHelpers.MethodBase_GetMethod);
+			}
+			else if ( value is MethodGroup)
+			{
+				throw new NotImplementedException("Can't emit methodGroups here");
+			}
+			else if( value is FunctionMethodGenerator )
+			{
+				// body
+				generator.LoadInt64((value as FunctionMethodGenerator).MethodID);
+				generator.Call(ReflectionHelpers.MethodLookup_Load);
 			}
 			else
 			{
@@ -145,7 +159,7 @@ namespace Nitrassic.Compiler
 					case TypeCode.DateTime:
 					case TypeCode.DBNull:
 					case TypeCode.Decimal:
-						throw new NotImplementedException(string.Format("Cannot emit the value '{0}'", value));
+						throw new NotImplementedException(string.Format("Cannot emit the value '{0}' (a "+value.GetType()+")", value));
 				}
 			}
 		}
@@ -164,6 +178,22 @@ namespace Nitrassic.Compiler
 			
 			// Get the static ref to the engine:
 			generator.LoadField(generator.Engine.ReflectionEmitInfo.GlobalEngine);
+			
+		}
+		
+		/// <summary>
+		/// Pushes a particular proto to the stack.
+		/// </summary>
+		public static void LoadPrototype(ILGenerator generator,Type forType){
+			
+			// Load proto set:
+			LoadPrototypes(generator);
+			
+			// Put the type on the stack:
+			generator.LoadToken(forType);
+			
+			// Call get now:
+			generator.Call(ReflectionHelpers.PrototypeLookup_Get);
 			
 		}
 		
@@ -202,22 +232,6 @@ namespace Nitrassic.Compiler
 		public static void StoreThis(ILGenerator generator)
 		{
 			generator.StoreArgument(0);
-		}
-		
-		/// <summary>
-		/// Pushes a reference to the array of argument values for the current function onto the
-		/// stack.
-		/// </summary>
-		/// <param name="generator"> The IL generator. </param>
-		public static void LoadArgumentsArray(ILGenerator generator)
-		{
-			generator.LoadArgument(1);
-		}
-		
-		public static void LoadArgument(ILGenerator generator,int id){
-			generator.LoadArgument(1);
-			generator.LoadInt32(id);
-			generator.LoadArrayElement(typeof(object));
 		}
 		
 	}

@@ -11,122 +11,66 @@ namespace Nitrassic.Library
 	/// </summary>
 	[Serializable]
 	[JSProperties(Name="Function")]
-	public abstract partial class FunctionInstance : ObjectInstance
+	public abstract partial class FunctionInstance
 	{
-		// Used to speed up access to the prototype property.
-		private int cachedInstancePrototypeIndex;
-		private int cachedInstancePrototypeSchema=-1;
-
-
+		
 		//	 INITIALIZATION
 		//_________________________________________________________________________________________
-
+		
+		internal FunctionMethodGenerator Generator;
+		
 		/// <summary>
 		/// Creates a new instance of a built-in function object, with the default Function
 		/// prototype.
 		/// </summary>
-		/// <param name="engine"> The associated script engine. </param>
-		protected FunctionInstance(ScriptEngine engine)
-			: base(engine, engine.Prototypes.FunctionPrototype)
-		{
+		protected FunctionInstance(){
 		}
-
-		/// <summary>
-		/// Creates a new instance of a built-in function object.
-		/// </summary>
-		/// <param name="prototype"> The next object in the prototype chain. </param>
-		protected FunctionInstance(Prototype prototype)
-			: base(prototype)
-		{
-		}
-
-		/// <summary>
-		/// Creates a new instance of a built-in function object.
-		/// </summary>
-		/// <param name="engine"> The associated script engine. </param>
-		/// <param name="prototype"> The next object in the prototype chain.  Can be <c>null</c>. </param>
-		protected FunctionInstance(ScriptEngine engine, Prototype prototype)
-			: base(engine, prototype)
-		{
-		}
-
-		/// <summary>
-		/// Initializes the prototype properties.
-		/// </summary>
-		/// <param name="constructor"> A reference to the constructor that owns the prototype. </param>
-		internal void InitializePrototypeProperties(MethodBase constructor)
-		{
-			// Initialize the prototype properties.
-			AddProperty("constructor", constructor, PropertyAttributes.NonEnumerable,false);
-			AddProperty("name", "Empty", PropertyAttributes.Configurable,false);
-			AddProperty("length", 0, PropertyAttributes.Configurable,false);
-		}
-
-
-
+		
 		//	 .NET ACCESSOR PROPERTIES
 		//_________________________________________________________________________________________
+		
+		public Type GetInstanceType(ScriptEngine engine){
+			return GetInstancePrototype(engine).Type;
+		}
+		
+		private Library.Prototype _RawInstancePrototype;
 		
 		/// <summary>
 		/// Gets the prototype of objects constructed using this function.  Equivalent to
 		/// the Function.prototype property.
 		/// </summary>
-		public Prototype InstancePrototype
-		{
-			get
-			{
-				// See 13.2.2
-				
-				// Retrieve the value of the prototype property.
-				//var prototype = this["prototype"] as Prototype;
-				Prototype prototype;
-				if (this.cachedInstancePrototypeSchema == this.InlineCacheKey)
-					prototype = this.InlinePropertyValues[this.cachedInstancePrototypeIndex] as Prototype;
-				else
-					prototype = this.InlineGetPropertyValue("prototype", out this.cachedInstancePrototypeIndex, out this.cachedInstancePrototypeSchema) as Prototype;
-				
-				// If the prototype property is not set to an object, use the Object prototype property instead.
-				#warning disabled a compare from this function instance and the object ctr
-				if (prototype == null) // && this != this.Engine.Prototypes.Object.Constructor)
-					return this.Engine.Prototypes.ObjectPrototype;
-				
-				return prototype;
+		public Library.Prototype GetInstancePrototype(ScriptEngine engine){
+			
+			if(Generator!=null){
+				return Generator.GetInstancePrototype(engine);
 			}
+			
+			if(_RawInstancePrototype==null){
+				
+				// Create one now!
+				_RawInstancePrototype=engine.Prototypes.Create();
+				
+			}
+			
+			return _RawInstancePrototype;
+			
 		}
-
+		
 		/// <summary>
 		/// Gets the name of the function.
 		/// </summary>
-		public string Name
-		{
-			get { return TypeConverter.ToString(this["name"]); }
-		}
+		public string Name;
 
 		/// <summary>
 		/// Gets the display name of the function.  This is equal to the displayName property, if
 		/// it exists, or the name property otherwise.
 		/// </summary>
-		public string DisplayName
-		{
-			get
-			{
-				if (this.HasProperty("displayName"))
-					return TypeConverter.ToString(this["displayName"]);
-				var name = TypeConverter.ToString(this["name"]);
-				if (name == string.Empty)
-					return "[Anonymous]";
-				return name;
-			}
-		}
+		public string DisplayName;
 
 		/// <summary>
 		/// Gets the number of arguments expected by the function.
 		/// </summary>
-		public int Length
-		{
-			get { return TypeConverter.ToInteger(this["length"]); }
-			protected set { this.FastSetProperty("length", value); }
-		}
+		public int Length;
 
 
 
@@ -141,54 +85,29 @@ namespace Nitrassic.Library
 		/// <param name="instance"> The instance to check. </param>
 		/// <returns> <c>true</c> if the object inherits from this function; <c>false</c>
 		/// otherwise. </returns>
-		public virtual bool HasInstance(object instance)
+		public bool HasInstance(ScriptEngine engine,object instance)
 		{
-			if ((instance is ObjectInstance) == false)
+			
+			if(instance==null){
 				return false;
-			object functionPrototype = this["prototype"];
-			if ((functionPrototype is ObjectInstance) == false)
-				throw new JavaScriptException(this.Engine, "TypeError", "Function has non-object prototype in instanceof check");
-			var instancePrototype = ((ObjectInstance)instance).Prototype;
-			while (instancePrototype != null)
-			{
-				if (instancePrototype == functionPrototype)
-					return true;
-				instancePrototype = instancePrototype.Prototype;
 			}
-			return false;
+			
+			
+			// Get the type of the instance:
+			Type type=instance.GetType();
+			
+			// Check if it == or inherits from InstanceType.
+			return GetInstanceType(engine).IsAssignableFrom(type);
 		}
 
 		/// <summary>
 		/// Calls this function, passing in the given "this" value and zero or more arguments.
 		/// </summary>
-		/// <param name="thisObj"> The value of the "this" keyword within the function. </param>
-		/// <param name="argumentValues"> An array of argument values. </param>
+		/// <param name="thisAndArgumentValues"> The value of the "this" keyword within the function plus
+		/// an array of argument values to pass to the function. </param>
 		/// <returns> The value that was returned from the function. </returns>
-		public abstract object CallLateBound(object thisObj, params object[] argumentValues);
+		public abstract object CallLateBound(ScriptEngine engine,params object[] thisAndArgumentValues);
 		
-		/// <summary>
-		/// Creates an object, using this function as the constructor.
-		/// </summary>
-		/// <param name="argumentValues"> An array of argument values. </param>
-		/// <returns> The object that was created. </returns>
-		public virtual ObjectInstance ConstructLateBound(params object[] argumentValues)
-		{
-			// Create a new object and set the prototype to the instance prototype of the function.
-			var newObject = ObjectInstance.CreateRawObject(this.InstancePrototype);
-
-			// Run the function, with the new object as the "this" keyword.
-			var result = CallLateBound(newObject, argumentValues);
-
-			// Return the result of the function if it is an object.
-			if (result is ObjectInstance)
-				return (ObjectInstance)result;
-
-			// Otherwise, return the new object.
-			return newObject;
-		}
-
-
-
 		//	 JAVASCRIPT FUNCTIONS
 		//_________________________________________________________________________________________
 
@@ -198,7 +117,7 @@ namespace Nitrassic.Library
 		/// <param name="thisObj"> The value of <c>this</c> in the context of the function. </param>
 		/// <param name="arguments"> The arguments passed to the function, as an array. </param>
 		/// <returns> The result from the function call. </returns>
-		public object Apply(object thisObj, object arguments)
+		public object Apply(ScriptEngine engine,object thisObj, object arguments)
 		{
 			// Convert the arguments parameter into an array.
 			object[] argumentsArray;
@@ -207,47 +126,37 @@ namespace Nitrassic.Library
 			else
 			{
 				if ((arguments is ObjectInstance) == false)
-					throw new JavaScriptException(this.Engine, "TypeError", "The second parameter of apply() must be an array or an array-like object.");
+					throw new JavaScriptException(engine, "TypeError", "The second parameter of apply() must be an array or an array-like object.");
 				ObjectInstance argumentsObject = (ObjectInstance)arguments;
 				object arrayLengthObj = argumentsObject["length"];
 				if (arrayLengthObj == null || arrayLengthObj == Undefined.Value || arrayLengthObj == Null.Value)
-					throw new JavaScriptException(this.Engine, "TypeError", "The second parameter of apply() must be an array or an array-like object.");
+					throw new JavaScriptException(engine, "TypeError", "The second parameter of apply() must be an array or an array-like object.");
 				uint arrayLength = TypeConverter.ToUint32(arrayLengthObj);
 				if (arrayLength != TypeConverter.ToNumber(arrayLengthObj))
-					throw new JavaScriptException(this.Engine, "TypeError", "The second parameter of apply() must be an array or an array-like object.");
+					throw new JavaScriptException(engine, "TypeError", "The second parameter of apply() must be an array or an array-like object.");
 				argumentsArray = new object[arrayLength];
 				for (uint i = 0; i < arrayLength; i++)
 					argumentsArray[i] = argumentsObject[i];
 			}
 
-			return this.CallLateBound(thisObj, argumentsArray);
+			return this.CallLateBound(engine, thisObj, argumentsArray);
 		}
 
 		/// <summary>
 		/// Calls the function.
 		/// </summary>
-		/// <param name="thisObj"> The value of <c>this</c> in the context of the function. </param>
-		/// <param name="arguments"> Any number of arguments that will be passed to the function. </param>
+		/// <param name="thisAndArguments"> The value of <c>this</c> in the context of the function plus
+		/// any number of arguments that will be passed to the function. </param>
 		/// <returns> The result from the function call. </returns>
-		public object Call(object thisObj, params object[] arguments)
+		public object Call(ScriptEngine engine, params object[] thisAndArguments)
 		{
-			return this.CallLateBound(thisObj, arguments);
+			
+			if(thisAndArguments==null || thisAndArguments.Length<1){
+				throw new JavaScriptException(engine, "TypeError", "Missing 'this' parameter.");
+			}
+			
+			return this.CallLateBound(engine, thisAndArguments);
 		}
-		
-		#warning bind
-		/*
-		/// <summary>
-		/// Creates a new function that, when called, calls this function with the given "this"
-		/// value and, optionally, one or more more arguments.
-		/// </summary>
-		/// <param name="boundThis"> The fixed value of "this". </param>
-		/// <param name="boundArguments"> Any number of fixed arguments values. </param>
-		/// <returns> A new function. </returns>
-		public FunctionInstance Bind(object boundThis, params object[] boundArguments)
-		{
-			return new BoundFunction(this, boundThis, boundArguments);
-		}
-		*/
 		
 		/// <summary>
 		/// Returns a string representing this object.
@@ -270,10 +179,12 @@ namespace Nitrassic.Library
 		{
 			// Passing no arguments results in an empty function.
 			if (argumentsAndBody.Length == 0)
-				return UserDefinedFunction.Create(engine, "anonymous", new ArgVariable[0], string.Empty);
+				return UserDefinedFunction.Create(engine, "anonymous", null, string.Empty);
 
 			// Split any comma-delimited names.
 			List<ArgVariable> args = new List<ArgVariable>();
+			args.Add(new ArgVariable("this"));
+			
 			for (int i = 0; i < argumentsAndBody.Length - 1; i++)
 			{
 				var splitNames = argumentsAndBody[i].Split(',');

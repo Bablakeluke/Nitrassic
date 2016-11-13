@@ -46,7 +46,27 @@ namespace Nitrassic.Compiler
 		{
 			get { return this.GetOperand(1); }
 		}
-
+		
+		private Library.Prototype ResolvedPrototype;
+		
+		internal override void ResolveVariables(OptimizationInfo optimizationInfo){
+			
+			base.ResolveVariables(optimizationInfo);
+			
+			// If this is an 'in' operator, resolve the prototype of the right property.
+			
+			if(OperatorType==OperatorType.In){
+				
+				// Get the type of the RHS (the object being checked):
+				Type rhsType=Right.GetResultType(optimizationInfo);
+				
+				// Get the proto for it:
+				ResolvedPrototype=optimizationInfo.Engine.Prototypes.Get(rhsType);
+				
+			}
+			
+		}
+		
 		/// <summary>
 		/// Evaluates the expression, if possible.
 		/// </summary>
@@ -55,13 +75,28 @@ namespace Nitrassic.Compiler
 		public override object Evaluate()
 		{
 			// Evaluate the operands.
-			var left = this.Left.Evaluate();
+			object left = this.Left.Evaluate();
 			if (left == null)
 				return null;
-			var right = this.Right.Evaluate();
-			if (right == null)
-				return null;
-
+			
+			object right;
+			
+			if(OperatorType==OperatorType.In){
+				right=null;
+				
+				if(ResolvedPrototype==null){
+					return null;
+				}
+				
+			}else{
+				right=this.Right.Evaluate();
+				
+				if (right == null){
+					return null;
+				}
+				
+			}
+			
 			// Apply the binary operator logic.
 			switch (this.OperatorType)
 			{
@@ -100,11 +135,14 @@ namespace Nitrassic.Compiler
 
 				// Relational operations.
 				case OperatorType.LessThan:
+					return TypeComparer.LessThan(left,right);
 				case OperatorType.LessThanOrEqual:
+					return TypeComparer.LessThanOrEqual(left,right);
 				case OperatorType.GreaterThan:
+					return TypeComparer.GreaterThan(left,right);
 				case OperatorType.GreaterThanOrEqual:
-					return typeof(bool);
-
+					return TypeComparer.GreaterThanOrEqual(left,right);
+				
 				// Equality operations.
 				case OperatorType.Equal:
 					return TypeComparer.Equals(left, right) == true;
@@ -127,8 +165,15 @@ namespace Nitrassic.Compiler
 					return right;
 
 				// Misc
-				case OperatorType.InstanceOf:
 				case OperatorType.In:
+					
+					// Constant property! Convert it to a string:
+					string propertyName=TypeConverter.ToString(left);
+					
+					// Exists?
+					return (ResolvedPrototype.GetProperty(propertyName)!=null);
+					
+				case OperatorType.InstanceOf:
 					return null;
 
 				default:
@@ -153,6 +198,14 @@ namespace Nitrassic.Compiler
 							return typeof(ConcatenatedString);
 						if (lhs == typeof(ConcatenatedString) || rhs == typeof(ConcatenatedString))
 							return typeof(ConcatenatedString);
+						
+						// If the two types are numeric integers, retain the one with the most accuracy.
+						Type numeric=TypeConverter.MostAccurateInteger(lhs,rhs);
+						
+						if(numeric!=null){
+							return numeric;
+						}
+						
 						if (lhs == typeof(object) || lhs == typeof(Library.ObjectInstance) ||
 							rhs == typeof(object) || rhs == typeof(Library.ObjectInstance))
 							return typeof(object);
@@ -192,6 +245,42 @@ namespace Nitrassic.Compiler
 				
 				// Logical operations.
 				case OperatorType.LogicalAnd:
+					{
+						var lhs = this.Left.GetResultType(optimizationInfo);
+						var rhs = this.Right.GetResultType(optimizationInfo);
+						
+						// If lhs is true (regardless of whatever it's type is) then we respond with rhs.
+						// If it's false, we respond with typeof(bool).
+						
+						// Try and eval left statically:
+						object leftEval=Left.Evaluate();
+						
+						if(leftEval==null){
+							// Can't statically eval it.
+							
+							// If rhs is a bool then great, we know for sure we're returning a bool.
+							if(rhs==typeof(bool)){
+								return typeof(bool);
+							}
+							
+							// Either a bool or rhs. For now this is an error condition.
+							optimizationInfo.TypeError(
+								"Ambiguous type && statement. It returns either a boolean or '"+rhs+
+								"'. Add ==true to the right hand side to make sure it only returns a boolean."
+							);
+							
+							return typeof(object);
+						}
+						
+						if(leftEval!=null && TypeConverter.ToBoolean(leftEval)){
+							// Ok! We'll be returning rhs no matter what.
+							return rhs;
+						}
+						
+						// Left eval was false so we'll be returning false.
+						return typeof(bool);
+						
+					}
 				case OperatorType.LogicalOr:
 					{
 						// The result is either the left-hand side or the right-hand side.
@@ -199,8 +288,26 @@ namespace Nitrassic.Compiler
 						var rhs = this.Right.GetResultType(optimizationInfo);
 						if (lhs == rhs)
 							return lhs;
-						if (PrimitiveTypeUtilities.IsNumeric(lhs) == true && PrimitiveTypeUtilities.IsNumeric(rhs) == true)
+						if ( PrimitiveTypeUtilities.IsNumeric(lhs) && PrimitiveTypeUtilities.IsNumeric(rhs) )
 							return typeof(double);
+						
+						// If either evaluates statically to 0 then we also know the correct return type.
+						object leftEval=Left.Evaluate();
+						
+						if(leftEval!=null && !TypeConverter.ToBoolean(leftEval)){
+							
+							return rhs;
+							
+						}
+						
+						object rightEval=Right.Evaluate();
+						
+						if(rightEval!=null && !TypeConverter.ToBoolean(rightEval)){
+							
+							return lhs;
+							
+						}
+						
 						return typeof(object);
 					}
 
@@ -300,7 +407,14 @@ namespace Nitrassic.Compiler
 
 			// Load the right hand side onto the stack.
 			this.Right.GenerateCode(generator, optimizationInfo);
-
+			
+			// If the return isn't in use, pop them both:
+			if(optimizationInfo.RootExpression==this){
+				generator.Pop();
+				generator.Pop();
+				return;
+			}
+			
 			// Convert the right argument.
 			switch (this.OperatorType)
 			{
@@ -396,6 +510,7 @@ namespace Nitrassic.Compiler
 				default:
 					throw new NotImplementedException(string.Format("Unsupported operator {0}", this.OperatorType));
 			}
+			
 		}
 
 		/// <summary>
@@ -449,21 +564,48 @@ namespace Nitrassic.Compiler
 				rightType != typeof(object) && rightType != typeof(Library.ObjectInstance))
 			{
 				// Neither of the operands are strings.
+				
+				// If the two types are numeric integers, retain the one with the most accuracy.
+				Type numeric=TypeConverter.MostAccurateInteger(leftType,rightType);
+				
+				if(numeric==null){
+					
+					// Load the left hand side onto the stack.
+					this.Left.GenerateCode(generator, optimizationInfo);
 
-				// Load the left hand side onto the stack.
-				this.Left.GenerateCode(generator, optimizationInfo);
+					// Convert the operand to a number.
+					EmitConversion.ToNumber(generator, leftType);
 
-				// Convert the operand to a number.
-				EmitConversion.ToNumber(generator, leftType);
+					// Load the right hand side onto the stack.
+					this.Right.GenerateCode(generator, optimizationInfo);
 
-				// Load the right hand side onto the stack.
-				this.Right.GenerateCode(generator, optimizationInfo);
+					// Convert the operand to a number.
+					EmitConversion.ToNumber(generator, rightType);
 
-				// Convert the operand to a number.
-				EmitConversion.ToNumber(generator, rightType);
-
-				// Add the two numbers.
-				generator.Add();
+					// Add the two numbers.
+					generator.Add();
+					
+				}else{
+					
+					// Use them both converted to 'numeric'
+					
+					// Load the left hand side onto the stack.
+					this.Left.GenerateCode(generator, optimizationInfo);
+					
+					// Convert the operand to a number.
+					EmitConversion.ToNumber(generator, leftType, numeric);
+					
+					// Load the right hand side onto the stack.
+					this.Right.GenerateCode(generator, optimizationInfo);
+					
+					// Convert the operand to a number.
+					EmitConversion.ToNumber(generator, rightType,numeric);
+					
+					// Add the two numbers.
+					generator.Add();
+					
+				}
+				
 			}
 			else
 			{
@@ -503,7 +645,13 @@ namespace Nitrassic.Compiler
 
 				// Load the right hand side operand onto the stack.
 				this.Right.GenerateCode(generator, optimizationInfo);
-
+				
+				if(optimizationInfo.RootExpression==this){
+					generator.Pop();
+					generator.Pop();
+					return;
+				}
+				
 				// Compare the two strings.
 				generator.Call(ReflectionHelpers.String_CompareOrdinal);
 				switch (this.OperatorType)
@@ -535,7 +683,13 @@ namespace Nitrassic.Compiler
 
 				// Load the right hand side operand onto the stack.
 				this.Right.GenerateCode(generator, optimizationInfo);
-
+				
+				if(optimizationInfo.RootExpression==this){
+					generator.Pop();
+					generator.Pop();
+					return;
+				}
+				
 				// Compare the two numbers.
 				switch (this.OperatorType)
 				{
@@ -573,7 +727,13 @@ namespace Nitrassic.Compiler
 
 				// Load the right hand side operand onto the stack.
 				this.Right.GenerateCode(generator, optimizationInfo);
-
+				
+				if(optimizationInfo.RootExpression==this){
+					generator.Pop();
+					generator.Pop();
+					return;
+				}
+				
 				// Convert the operand to a number.
 				EmitConversion.ToNumber(generator, rightType);
 
@@ -612,8 +772,15 @@ namespace Nitrassic.Compiler
 
 				// Load the right hand side operand onto the stack.
 				this.Right.GenerateCode(generator, optimizationInfo);
+				
+				if(optimizationInfo.RootExpression==this){
+					generator.Pop();
+					generator.Pop();
+					return;
+				}
+				
 				EmitConversion.ToAny(generator, rightType);
-
+				
 				switch (this.OperatorType)
 				{
 					case OperatorType.LessThan:
@@ -642,10 +809,71 @@ namespace Nitrassic.Compiler
 		/// <param name="optimizationInfo"> Information about any optimizations that should be performed. </param>
 		private void GenerateLogical(ILGenerator generator, OptimizationInfo optimizationInfo)
 		{
+			
+			// If either evaluates statically to 0 then we also know the correct return type.
+			object leftEval=Left.Evaluate();
+			
+			if(leftEval!=null){
+				
+				// RHS only.
+				
+				bool leftTrue=TypeConverter.ToBoolean(leftEval);
+				
+				// a && b
+				// If a is false, don't do anything with b.
+				// If a is true, emit b.
+				// a || b
+				// If a is false, emit b. If it's true, emit a.
+				
+				if(OperatorType == OperatorType.LogicalAnd && !leftTrue){
+					
+					// Don't evaluate the RHS. Just emit a 'false' if one is needed.
+					if(optimizationInfo.RootExpression!=this){
+						
+						// Emit the false:
+						generator.LoadBoolean(false);
+						
+					}
+					
+				}else if(OperatorType==OperatorType.LogicalOr && leftTrue){
+					
+					// Emit the left object only.
+					if(optimizationInfo.RootExpression!=this){
+						
+						// Load it:
+						EmitHelpers.EmitValue(generator,leftEval);
+						
+					}
+					
+				}else if(optimizationInfo.RootExpression==this){
+					
+					// Emitting b (no return type required).
+					
+					// Right will be the root instead.
+					optimizationInfo.RootExpression=Right;
+					Right.GenerateCode(generator, optimizationInfo);
+					optimizationInfo.RootExpression=this;
+					
+				}else{
+					
+					// Emitting b (return type required).
+					
+					// Output required.
+					Right.GenerateCode(generator, optimizationInfo);
+					
+				}
+				
+				return;
+				
+			}
+			
+			// Evaluate B, just in case we're doing RHS only:
+			object rightEval=Right.Evaluate();
+			
 			// Get the statically-determined types of the left and right operands.
 			Type leftType = this.Left.GetResultType(optimizationInfo);
-			Type rightType = this.Right.GetResultType(optimizationInfo);
-
+			Type rightType = rightEval==null?this.Right.GetResultType(optimizationInfo) : rightEval.GetType();
+			
 			// Load the left-hand side operand.
 			this.Left.GenerateCode(generator, optimizationInfo);
 
@@ -663,31 +891,61 @@ namespace Nitrassic.Compiler
 					leftType = typeof(object);
 				}
 			}
-
-			// Duplicate and convert to a Boolean.
-			generator.Duplicate();
+			
+			// If this is an OR, we might be using the value currently on the stack if it's true.
+			// So, duplicate:
+			if(OperatorType == OperatorType.LogicalOr && optimizationInfo.RootExpression!=this){
+				generator.Duplicate();
+			}
+			
+			// Convert to a boolean:
 			EmitConversion.ToBool(generator, leftType);
-
-			// Stack contains "left, (bool)left"
+			
+			// If this is an AND, we might be using the value currently on the stack if it's false.
+			// So, duplicate:
+			if(OperatorType == OperatorType.LogicalAnd && optimizationInfo.RootExpression!=this){
+				generator.Duplicate();
+			}
+			
+			// Stack contains:
+			// OR: "left, (bool)left"
+			// AND: "(bool)left, (bool)left"
+			
 			var endOfIf = generator.CreateLabel();
 			if (this.OperatorType == OperatorType.LogicalAnd)
 				generator.BranchIfFalse(endOfIf);
 			else
 				generator.BranchIfTrue(endOfIf);
-
-			// Stack contains "left".  Load the right-hand side operand.
-			generator.Pop();
-			this.Right.GenerateCode(generator, optimizationInfo);
-
-			// Make sure the output type is consistant.
-			if (leftType != rightType)
-			{
-				if (PrimitiveTypeUtilities.IsNumeric(leftType) == true && PrimitiveTypeUtilities.IsNumeric(rightType) == true)
-					EmitConversion.ToNumber(generator, rightType);
-				else
-					EmitConversion.ToAny(generator, rightType);
+			
+			if(optimizationInfo.RootExpression==this){
+				
+				// Right hand side will now be the root (output is not in use).
+				optimizationInfo.RootExpression=Right;
+				
+				Right.GenerateCode(generator, optimizationInfo);
+				
+				// Restore:
+				optimizationInfo.RootExpression=this;
+				
+			}else{
+				
+				// Stack contains "left" which we don't need if we fall through here. Pop it off:
+				generator.Pop();
+				
+				// Output is in use.
+				Right.GenerateCode(generator, optimizationInfo);
+				
+				// Make sure the output type is consistant.
+				if (leftType != rightType)
+				{
+					if (PrimitiveTypeUtilities.IsNumeric(leftType) == true && PrimitiveTypeUtilities.IsNumeric(rightType) == true)
+						EmitConversion.ToNumber(generator, rightType);
+					else
+						EmitConversion.ToAny(generator, rightType);
+				}
+				
 			}
-
+			
 			// Define the label used above.
 			generator.DefineLabelPosition(endOfIf);
 		}
@@ -699,6 +957,15 @@ namespace Nitrassic.Compiler
 		/// <param name="optimizationInfo"> Information about any optimizations that should be performed. </param>
 		private void GenerateInstanceOf(ILGenerator generator, OptimizationInfo optimizationInfo)
 		{
+			
+			if(optimizationInfo.RootExpression==this){
+				Left.GenerateCode(generator, optimizationInfo);
+				Right.GenerateCode(generator, optimizationInfo);
+				generator.Pop();
+				generator.Pop();
+				return;
+			}
+			
 			// Emit the left-hand side expression and convert it to an object.
 			this.Left.GenerateCode(generator, optimizationInfo);
 			EmitConversion.ToAny(generator, this.Left.GetResultType(optimizationInfo));
@@ -738,7 +1005,10 @@ namespace Nitrassic.Compiler
 			generator.Throw();
 			generator.DefineLabelPosition(endOfTypeCheck);
 			generator.ReleaseTemporaryVariable(rightValue);
-
+			
+			// Emit the engine for FunctionInstance_HasInstance:
+			EmitHelpers.LoadEngine(generator);
+			
 			// Load the left-hand side expression from the temporary variable.
 			generator.LoadVariable(temp);
 
@@ -747,6 +1017,7 @@ namespace Nitrassic.Compiler
 
 			// Allow the temporary variable to be reused.
 			generator.ReleaseTemporaryVariable(temp);
+			
 		}
 
 		/// <summary>
@@ -756,54 +1027,33 @@ namespace Nitrassic.Compiler
 		/// <param name="optimizationInfo"> Information about any optimizations that should be performed. </param>
 		private void GenerateIn(ILGenerator generator, OptimizationInfo optimizationInfo)
 		{
-			// Emit the left-hand side expression and convert it to a string.
-			this.Left.GenerateCode(generator, optimizationInfo);
-			EmitConversion.ToString(generator, this.Left.GetResultType(optimizationInfo));
-
-			// Store the left-hand side expression in a temporary variable.
-			var temp = generator.CreateTemporaryVariable(typeof(string));
-			generator.StoreVariable(temp);
-
-			// Emit the right-hand side expression.
-			this.Right.GenerateCode(generator, optimizationInfo);
-			EmitConversion.ToAny(generator, this.Right.GetResultType(optimizationInfo));
-
-			// Check the right-hand side is a javascript object - if not, throw an exception.
-			generator.IsInstance(typeof(Library.ObjectInstance));
-			generator.Duplicate();
-			var endOfTypeCheck = generator.CreateLabel();
-			generator.BranchIfNotNull(endOfTypeCheck);
-
-			// Throw an nicely formatted exception.
-			var rightValue = generator.CreateTemporaryVariable(typeof(object));
-			generator.StoreVariable(rightValue);
+			
+			if(optimizationInfo.RootExpression==this){
+				// Return isn't in use. Do nothing.
+				Left.GenerateCode(generator, optimizationInfo);
+				Right.GenerateCode(generator, optimizationInfo);
+				generator.Pop();
+				generator.Pop();
+				return;
+			}
+			
+			// Dynamic resolve required (The 'Evaluate' method above diverts away otherwise).
+			
+			// Engine required:
 			EmitHelpers.LoadEngine(generator);
-			generator.LoadString("TypeError");
-			generator.LoadString("The in operator expected an object, but found '{0}' instead");
-			generator.LoadInt32(1);
-			generator.NewArray(typeof(object));
-			generator.Duplicate();
-			generator.LoadInt32(0);
-			generator.LoadVariable(rightValue);
-			generator.Call(ReflectionHelpers.TypeUtilities_TypeOf);
-			generator.StoreArrayElement(typeof(object));
-			generator.Call(ReflectionHelpers.String_Format);
-			generator.LoadInt32(1);
-			generator.LoadStringOrNull(optimizationInfo.Source.Path);
-			generator.LoadStringOrNull(optimizationInfo.FunctionName);
-			generator.NewObject(ReflectionHelpers.JavaScriptException_Constructor_Error);
-			generator.Throw();
-			generator.DefineLabelPosition(endOfTypeCheck);
-			generator.ReleaseTemporaryVariable(rightValue);
-
-			// Load the left-hand side expression from the temporary variable.
-			generator.LoadVariable(temp);
-
-			// Call ObjectInstance.HasProperty(object)
-			generator.Call(ReflectionHelpers.ObjectInstance_HasProperty);
-
-			// Allow the temporary variable to be reused.
-			generator.ReleaseTemporaryVariable(temp);
+			
+			// Emit the object:
+			Right.GenerateCode(generator, optimizationInfo);
+			
+			// Emit the left-hand side expression and convert it to a string.
+			Left.GenerateCode(generator, optimizationInfo);
+			EmitConversion.ToString(generator, Left.GetResultType(optimizationInfo));
+			
+			// Property name is now on the stack too.
+			
+			// Emit the property test:
+			generator.Call(ReflectionHelpers.Object_HasProperty);
+			
 		}
 	}
 }

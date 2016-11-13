@@ -26,6 +26,13 @@ namespace Nitrassic.Library
 			
 		}
 		
+		public Int16Array(double length):base(TypedArrayStyle.Int16Array, (int)length){
+			
+			// Create the fast buffer:
+			buffer=new short[Length];
+			
+		}
+		
 		public Int16Array(TypedArray array):base(TypedArrayStyle.Int16Array, array)
 		{
 			
@@ -47,6 +54,8 @@ namespace Nitrassic.Library
 			Add(iterableObj);
 			
 		}
+		
+		public Int16Array(ArrayBuffer buff):this(buff,0,0){}
 		
 		public Int16Array(ArrayBuffer buff,int byteOffset,int length):base(TypedArrayStyle.Int16Array, length==0?buff.ByteLength:length)
 		{

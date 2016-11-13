@@ -6,7 +6,7 @@ namespace Nitrassic.Compiler
 	/// <summary>
 	/// Represents a generator of CIL bytes.
 	/// </summary>
-	internal abstract class ILGenerator
+	public abstract class ILGenerator
 	{
 		
 		public ScriptEngine Engine;
@@ -21,6 +21,10 @@ namespace Nitrassic.Compiler
 		/// </summary>
 		public abstract void Complete();
 
+		public abstract System.Reflection.Emit.MethodBuilder Builder{
+			get;
+		}
+		
 
 
 		//	 STACK MANAGEMENT
@@ -530,16 +534,40 @@ namespace Nitrassic.Compiler
 		public abstract void UnboxAny(Type type);
 		
 		/// <summary>
+		/// Pops a value from the stack, converts it to a signed byte, then pushes it back onto
+		/// the stack.
+		/// </summary>
+		public abstract void ConvertToInt8();
+
+		/// <summary>
+		/// Pops a value from the stack, converts it to an unsigned byte, then pushes it back
+		/// onto the stack.
+		/// </summary>
+		public abstract void ConvertToUnsignedInt8();
+		
+		/// <summary>
+		/// Pops a value from the stack, converts it to a signed short, then pushes it back onto
+		/// the stack.
+		/// </summary>
+		public abstract void ConvertToInt16();
+
+		/// <summary>
+		/// Pops a value from the stack, converts it to an unsigned short, then pushes it back
+		/// onto the stack.
+		/// </summary>
+		public abstract void ConvertToUnsignedInt16();
+		
+		/// <summary>
 		/// Pops a value from the stack, converts it to a signed integer, then pushes it back onto
 		/// the stack.
 		/// </summary>
-		public abstract void ConvertToInteger();
+		public abstract void ConvertToInt32();
 
 		/// <summary>
 		/// Pops a value from the stack, converts it to an unsigned integer, then pushes it back
 		/// onto the stack.
 		/// </summary>
-		public abstract void ConvertToUnsignedInteger();
+		public abstract void ConvertToUnsignedInt32();
 
 		/// <summary>
 		/// Pops a value from the stack, converts it to a signed 64-bit integer, then pushes it

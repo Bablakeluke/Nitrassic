@@ -51,20 +51,8 @@ namespace Nitrassic
 			AssemblyBuilder = System.Threading.Thread.GetDomain().DefineDynamicAssembly(
 				new AssemblyName("Nitro Dynamic Assembly"), AssemblyBuilderAccess.Run);
 			
-			if(engine.EnableDebugging){
-			
-				// Mark the assembly as debuggable.  This must be done before the module is created.
-				var debuggableAttributeConstructor = typeof(DebuggableAttribute).GetConstructor(
-					new Type[] { typeof(DebuggableAttribute.DebuggingModes) });
-				AssemblyBuilder.SetCustomAttribute(
-					new CustomAttributeBuilder(debuggableAttributeConstructor,
-						new object[] { 
-							DebuggableAttribute.DebuggingModes.DisableOptimizations | 
-							DebuggableAttribute.DebuggingModes.Default }));
-			}
-			
 			// Create a dynamic module.
-			ModuleBuilder = AssemblyBuilder.DefineDynamicModule("Module", engine.EnableDebugging);
+			ModuleBuilder = AssemblyBuilder.DefineDynamicModule("Module", ScriptEngine.EnableDebugging);
 			
 		}
 		

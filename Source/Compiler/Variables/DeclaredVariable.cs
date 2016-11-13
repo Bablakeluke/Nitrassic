@@ -38,7 +38,7 @@ namespace Nitrassic.Compiler{
 			
 		}
 		
-		internal override void Set(ILGenerator generator, OptimizationInfo optimizationInfo, Type valueType, SetValueMethod value)
+		internal override void Set(ILGenerator generator, OptimizationInfo optimizationInfo,bool rIU, Type valueType, SetValueMethod value)
 		{
 			
 			if(_Type==null)
@@ -59,7 +59,7 @@ namespace Nitrassic.Compiler{
 			}
 			
 			// Load the value:
-			value();
+			value(rIU);
 			
 			// Store the value in the variable.
 			generator.StoreVariable(Store);
@@ -74,10 +74,17 @@ namespace Nitrassic.Compiler{
 			}
 			set
 			{
+				
+				if(value==null || value==typeof(Nitrassic.Null)){
+					// Null has no effect on variable types.
+					return;
+				}
+				
 				if(_Type!=value)
 				{
 					Store=null;
 				}
+				
 				_Type=value;
 			}
 		}

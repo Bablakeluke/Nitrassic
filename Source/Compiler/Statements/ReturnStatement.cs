@@ -14,7 +14,68 @@ namespace Nitrassic.Compiler
 		/// Gets or sets the expression to return.  Can be <c>null</c> to return "undefined".
 		/// </summary>
 		public Expression Value;
-
+		/// <summary>
+		/// The return type.
+		/// </summary>
+		public Type ReturnType;
+		
+		/// <summary>Collapsed var warning.</summary>
+		private void Collapsed(){
+			
+			Wrench.Log.Add("Warning: Function return type has collapsed. This happens when you've got multiple return statements and they return different types.");
+		
+		}
+		
+		internal override void ResolveVariables(OptimizationInfo optimizationInfo)
+		{
+			
+			if(optimizationInfo.IsConstructor){
+				Wrench.Log.Add("You've got a return statement inside a function which is being used as a constructor. It's been ignored.");
+				return;
+			}
+			
+			if(Value==null){
+				
+				if(optimizationInfo.ReturnType!=null && optimizationInfo.ReturnType!=typeof(Nitrassic.Undefined)){
+					
+					// Collapsed.
+					ReturnType=typeof(object);
+					
+					if(ScriptEngine.CollapseWarning){
+						Collapsed();
+					}
+					
+				}
+				
+				return;
+			}
+			
+			// Resolve vars:
+			Value.ResolveVariables(optimizationInfo);
+			
+			// Get return type:
+			ReturnType=Value.GetResultType(optimizationInfo);
+			
+			if(optimizationInfo.ReturnType==null){
+				
+				optimizationInfo.ReturnType=ReturnType;
+				
+			}else if(!optimizationInfo.ReturnType.IsAssignableFrom(ReturnType)){
+				
+				// Return type has collapsed. Can only become 'object' now.
+				ReturnType=typeof(object);
+				
+				if(ScriptEngine.CollapseWarning){
+					Collapsed();
+				}
+				
+				// Change the return type:
+				optimizationInfo.ReturnType=typeof(object);
+				
+			}
+			
+		}
+		
 		/// <summary>
 		/// Generates CIL for the statement.
 		/// </summary>
@@ -23,29 +84,67 @@ namespace Nitrassic.Compiler
 		public override void GenerateCode(ILGenerator generator, OptimizationInfo optimizationInfo)
 		{
 			
-			// Emit the return value.
-			if (this.Value == null)
-				EmitHelpers.EmitUndefined(generator);
-			else
-			{
-				this.Value.GenerateCode(generator, optimizationInfo);
-				EmitConversion.ToAny(generator, this.Value.GetResultType(optimizationInfo));
+			if(optimizationInfo.IsConstructor){
+				return;
 			}
-
+			
+			// Emit the return value.
+			Type returnType=ReturnType;
+			
 			// Determine if this is the last statement in the function.
-			bool lastStatement = optimizationInfo.AbstractSyntaxTree is BlockStatement &&
-				((BlockStatement)optimizationInfo.AbstractSyntaxTree).Statements.Count > 0 &&
-				((BlockStatement)optimizationInfo.AbstractSyntaxTree).Statements[((BlockStatement)optimizationInfo.AbstractSyntaxTree).Statements.Count - 1] == this;
+			BlockStatement hostBlock=optimizationInfo.AbstractSyntaxTree as BlockStatement;
+			
+			bool lastStatement;
 
-			// The first return statement initializes the variable that holds the return value.
-			if (optimizationInfo.ReturnVariable == null)
-				optimizationInfo.ReturnVariable = generator.DeclareVariable(typeof(object), "returnValue");
-
-			// Store the return value in a variable.
-			generator.StoreVariable(optimizationInfo.ReturnVariable);
-
+			if(hostBlock!=null && hostBlock.Statements.Count > 0 &&
+				hostBlock.Statements[hostBlock.Statements.Count - 1] == this){
+					lastStatement=true;
+			}else{
+				lastStatement=false;
+			}
+			
+			// Current return var:
+			var returnVar=optimizationInfo.ReturnVariable;
+			
+			if (Value != null){
+				
+				// Emit the returned value:
+				Value.GenerateCode(generator, optimizationInfo);
+				
+				// The first return statement initializes the variable that holds the return value.
+				if (returnVar == null){
+					
+					if(!lastStatement){
+						
+						returnVar = generator.DeclareVariable(returnType, "returnValue");
+						optimizationInfo.ReturnVariable=returnVar;
+						
+					}
+					
+				}
+				
+				
+			}else if(returnVar!=null){
+				
+				// We need to return undefined here, which will require changing the return type to object.
+				
+				// No value being set:
+				EmitHelpers.EmitUndefined(generator);
+				
+			}
+			
+			if(returnVar!=null){
+				
+				// the return type here must be a child type of the return type.
+				// If it isn't then this function returns different things.
+				
+				// Store the return value in a variable.
+				generator.StoreVariable(returnVar);
+				
+			}
+			
 			// There is no need to jump to the end of the function if this is the last statement.
-			if (lastStatement == false)
+			if (!lastStatement)
 			{
 				
 				// The first return statement that needs to branch creates the return label.  This is

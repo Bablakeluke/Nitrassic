@@ -29,6 +29,16 @@ namespace Nitrassic.Library
 			
 		}
 		
+		public Uint8ClampedArray(double length):base(TypedArrayStyle.Uint8ClampedArray, (int)length){
+			
+			// Always uses a buffer as they are a byte[] anyway:
+			_Buffer=new ArrayBuffer(ByteLength);
+			
+			// Quick ref to the buffers buffer:
+			buffer=_Buffer.buffer;
+			
+		}
+		
 		public Uint8ClampedArray(TypedArray array):base(TypedArrayStyle.Uint8ClampedArray, array)
 		{
 			
@@ -56,6 +66,8 @@ namespace Nitrassic.Library
 			Add(iterableObj);
 			
 		}
+		
+		public Uint8ClampedArray(ArrayBuffer buff):this(buff,0,0){}
 		
 		public Uint8ClampedArray(ArrayBuffer buff,int byteOffset,int length):base(TypedArrayStyle.Uint8ClampedArray, length==0?buff.ByteLength:length)
 		{

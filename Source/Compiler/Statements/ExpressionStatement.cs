@@ -25,6 +25,14 @@ namespace Nitrassic.Compiler
 		/// </summary>
 		public Expression Expression;
 		
+		/// <summary>Sets the current statement root.</summary>
+		public override void SetRoot(OptimizationInfo optimizationInfo){
+			
+			// Apply expression as the root:
+			optimizationInfo.RootExpression=Expression;
+			
+		}
+		
 		/// <summary>
 		/// Generates CIL for the statement.
 		/// </summary>
@@ -35,7 +43,6 @@ namespace Nitrassic.Compiler
 			
 			// Emit the expression.
 			Expression.GenerateCode(generator, optimizationInfo);
-			generator.Pop();
 			
 		}
 

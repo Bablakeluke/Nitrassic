@@ -71,18 +71,52 @@ namespace Nitrassic.Compiler
 		/// <param name="optimizationInfo"> Information about any optimizations that should be performed. </param>
 		public override void GenerateCode(ILGenerator generator, OptimizationInfo optimizationInfo)
 		{
+			
+			// Parent root:
+			Expression rootExpression=optimizationInfo.RootExpression;
+			
 			// Get an array of comma-delimited expressions.
 			var items = this.Items;
-
-			for (int i = 0; i < items.Count - 1; i++)
-			{
-				// Generate code for the item, evaluating the side-effects but not producing any values.
-				items[i].GenerateCode(generator, optimizationInfo); //.AddFlags(OptimizationFlags.SuppressReturnValue));
-				generator.Pop();
+			int max=items.Count;
+			
+			if(max==0){
+				
+				if(rootExpression!=this){
+					// Some other expression is using '()' - emit an undefined:
+					EmitHelpers.EmitUndefined(generator);
+				}
+				
+				return;
 			}
-
-			// Generate code for the last item and return the value.
-			items[items.Count - 1].GenerateCode(generator, optimizationInfo);
+			
+			if(rootExpression!=this){
+				// Some other expression is the root. Return the last one.
+				max--;
+			}
+			
+			for (int i = 0; i < max; i++)
+			{
+				// Generate the code for the item:
+				Expression expr=items[i];
+				
+				// Update root - we don't want return values except for the last one:
+				optimizationInfo.RootExpression=expr;
+				
+				// Generate the code:
+				expr.GenerateCode(generator, optimizationInfo);
+				
+			}
+			
+			// Restore root:
+			optimizationInfo.RootExpression=rootExpression;
+			
+			if(rootExpression!=this){
+				// Return the last one
+				
+				// Generate code for the last item and return the value.
+				items[items.Count - 1].GenerateCode(generator, optimizationInfo);
+			}
+			
 		}
 
 		/// <summary>

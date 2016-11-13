@@ -1,11 +1,12 @@
 ﻿using System;
+using System.Collections.Generic;
 
 namespace Nitrassic.Compiler
 {
 	/// <summary>
 	/// Represents the information needed to compile global code.
 	/// </summary>
-	internal class GlobalMethodGenerator : MethodGenerator
+	public class GlobalMethodGenerator : MethodGenerator
 	{
 		/// <summary>
 		/// Creates a new GlobalMethodGenerator instance.
@@ -14,8 +15,18 @@ namespace Nitrassic.Compiler
 		/// <param name="source"> The source of javascript code. </param>
 		/// <param name="options"> Options that influence the compiler. </param>
 		public GlobalMethodGenerator(ScriptEngine engine, ScriptSource source, CompilerOptions options)
-			: base(engine, engine.GlobalScope, source, options)
+			: base(engine, new ObjectScope(engine,engine.GlobalPrototype), source, options)
 		{
+			
+			// Apply global scope:
+			Engine.GlobalScope=InitialScope as ObjectScope;
+			
+			// Set the global 'this':
+			Library.PropertyVariable pv=Engine.SetGlobalType("this",Engine.GlobalPrototype.Type,Library.PropertyAttributes.Sealed);
+			
+			// When loaded, we set 'this' to being our Global object:
+			Engine.AwaitStart(new AwaitingStart(pv,null,true));
+			
 		}
 		
 		/// <summary>
@@ -24,16 +35,7 @@ namespace Nitrassic.Compiler
 		/// <returns> A name for the generated method. </returns>
 		protected override string GetMethodName()
 		{
-			// Take the path of the script and replace the non-alphanumeric characters with
-			// underscores.
-			var sanitizedPath = new System.Text.StringBuilder(this.Source.Path);
-			for (int i = 0; i < sanitizedPath.Length; i++)
-			{
-				char c = sanitizedPath[i];
-				if ((c < '0' || c > '9') && (c < 'a' || c > 'z') && (c < 'A' || c > 'Z'))
-					sanitizedPath[i] = '_';
-			}
-			return "global_"+sanitizedPath.ToString();
+			return "__.main";
 		}
 
 		/// <summary>
@@ -55,17 +57,12 @@ namespace Nitrassic.Compiler
 		/// </summary>
 		/// <param name="generator"> The generator to output the CIL to. </param>
 		/// <param name="optimizationInfo"> Information about any optimizations that should be performed. </param>
-		protected override void GenerateCode(ILGenerator generator, OptimizationInfo optimizationInfo)
+		protected override void GenerateCode(ArgVariable[] arguments,ILGenerator generator, OptimizationInfo optimizationInfo)
 		{
-			
-			// Initialize any function or variable declarations.
-			(this.InitialScope as ObjectScope).GenerateDeclarations(generator, optimizationInfo);
 			
 			// Generate code for the source code.
 			this.AbstractSyntaxTree.GenerateCode(generator, optimizationInfo);
-
-			// Code in the global context always returns undefined.
-			EmitHelpers.EmitUndefined(generator);
+			
 		}
 
 		/// <summary>
@@ -76,7 +73,7 @@ namespace Nitrassic.Compiler
 		{
 			
 			// Execute the compiled delegate and store the result.
-			object result = GeneratedMethod.Call(this.Engine.Global,new object[1]);
+			object result = GeneratedMethods[0].CallLateBound(this.Engine);
 			
 			// Ensure the abstract syntax tree is kept alive until the eval code finishes running.
 			GC.KeepAlive(this);

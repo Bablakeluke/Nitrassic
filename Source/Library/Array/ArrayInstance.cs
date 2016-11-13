@@ -9,11 +9,13 @@ namespace Nitrassic.Library
 	/// <summary>
 	/// Represents an instance of the JavaScript Array object.
 	/// </summary>
-	public partial class Array : ObjectInstance
+	public partial class Array
 	{
 		// The array, if it is dense.
 		private object[] dense;
-
+		
+		private ObjectInstance lookup=new ObjectInstance();
+		
 		// The dense array might have holes within the range 0..length-1.
 		private bool denseMayContainHoles = false;
 
@@ -34,8 +36,7 @@ namespace Nitrassic.Library
 		/// <param name="prototype"> The next object in the prototype chain. </param>
 		/// <param name="length"> The initial value of the length property. </param>
 		/// <param name="capacity"> The number of elements to allocate. </param>
-		internal Array(ScriptEngine engine, uint length, uint capacity)
-			: base(engine.Prototypes.ArrayPrototype)
+		internal Array(uint length, uint capacity)
 		{
 			if (length > capacity)
 				throw new ArgumentOutOfRangeException("length", "length must be less than or equal to capacity.");
@@ -49,9 +50,8 @@ namespace Nitrassic.Library
 				this.sparse = new SparseArray();
 			}
 
-			// Create a fake property for length plus initialize the real length property.
+			// Initialize the length property.
 			this.length = length;
-			FastSetProperty("length", -1, PropertyAttributes.Writable | PropertyAttributes.IsLengthProperty);
 		}
 
 		/// <summary>
@@ -59,8 +59,7 @@ namespace Nitrassic.Library
 		/// </summary>
 		/// <param name="prototype"> The next object in the prototype chain. </param>
 		/// <param name="elements"> The initial values in the array. </param>
-		internal Array(ScriptEngine engine, object[] elements)
-			: base(engine.Prototypes.ArrayPrototype)
+		internal Array(object[] elements)
 		{
 			if (elements == null)
 				throw new ArgumentNullException("elements");
@@ -68,9 +67,8 @@ namespace Nitrassic.Library
 			
 			this.denseMayContainHoles = System.Array.IndexOf(elements, null) >= 0;
 
-			// Create a fake property for length plus initialize the real length property.
+			// Initialize the length property:
 			this.length = (uint)elements.Length;
-			FastSetProperty("length", -1, PropertyAttributes.Writable | PropertyAttributes.IsLengthProperty);
 		}
 
 		/// <summary>
@@ -79,16 +77,14 @@ namespace Nitrassic.Library
 		/// <param name="prototype"> The next object in the prototype chain. </param>
 		/// <param name="sparseArray"> The sparse array to use as the backing store. </param>
 		/// <param name="length"> The initial value of the length property. </param>
-		private Array(ScriptEngine engine, SparseArray sparseArray, uint length)
-			: base(engine.Prototypes.ArrayPrototype)
+		private Array(SparseArray sparseArray, uint length)
 		{
 			if (sparseArray == null)
 				throw new ArgumentNullException("sparseArray");
 			this.sparse = sparseArray;
 
-			// Create a fake property for length plus initialize the real length property.
+			// Initialize the length property.
 			this.length = length;
-			FastSetProperty("length", -1, PropertyAttributes.Writable | PropertyAttributes.IsLengthProperty);
 		}
 
 
@@ -100,49 +96,56 @@ namespace Nitrassic.Library
 		/// Gets or sets the number of elements in the array.  Equivalent to the javascript
 		/// Array.prototype.length property.
 		/// </summary>
-		public uint Length
+		public static int get_Length(ScriptEngine engine,Array thisObj) // Note that they must *both* either have or not have engine!
 		{
-			get { return this.length; }
-			set
+			return (int)thisObj.length;
+		}
+		
+		public static void set_Length(ScriptEngine engine,Array thisObj,int value)
+		{
+		
+			if(value<0){
+				throw new JavaScriptException(engine,"RangeError","Invalid array length.");
+			}
+			
+			uint previousLength = thisObj.length;
+			thisObj.length = (uint)value;
+			
+			if (thisObj.dense != null)
 			{
-				uint previousLength = this.length;
-				this.length = value;
-
-				if (this.dense != null)
+				if (thisObj.length < thisObj.dense.Length / 2 && thisObj.dense.Length > 100)
 				{
-					if (this.length < this.dense.Length / 2 && this.dense.Length > 100)
-					{
-						// Shrink the array.
-						ResizeDenseArray(this.length + 10, this.length);
-					}
-					else if (this.length > this.dense.Length + 10)
-					{
-						// Switch to a sparse array.
-						this.sparse = SparseArray.FromDenseArray(this.dense, (int)previousLength);
-						this.dense = null;
-					}
-					else if (this.length > this.dense.Length)
-					{
-						// Enlarge the array.
-						ResizeDenseArray(this.length + 10, previousLength);
-						this.denseMayContainHoles = true;
-					}
-					else if (this.length > previousLength)
-					{
-						// Increasing the length property creates an array with holes.
-						this.denseMayContainHoles = true;
-
-						// Remove all the elements with indices >= length.
-						System.Array.Clear(this.dense, (int)previousLength, (int)(this.length - previousLength));
-					}
+					// Shrink the array.
+					thisObj.ResizeDenseArray(thisObj.length + 10, thisObj.length);
 				}
-				else
+				else if (thisObj.length > thisObj.dense.Length + 10)
 				{
+					// Switch to a sparse array.
+					thisObj.sparse = SparseArray.FromDenseArray(thisObj.dense, (int)previousLength);
+					thisObj.dense = null;
+				}
+				else if (thisObj.length > thisObj.dense.Length)
+				{
+					// Enlarge the array.
+					thisObj.ResizeDenseArray(thisObj.length + 10, previousLength);
+					thisObj.denseMayContainHoles = true;
+				}
+				else if (thisObj.length > previousLength)
+				{
+					// Increasing the length property creates an array with holes.
+					thisObj.denseMayContainHoles = true;
+
 					// Remove all the elements with indices >= length.
-					if (this.length < previousLength)
-						this.sparse.DeleteRange(this.length, previousLength - this.length);
+					System.Array.Clear(thisObj.dense, (int)previousLength, (int)(thisObj.length - previousLength));
 				}
 			}
+			else
+			{
+				// Remove all the elements with indices >= length.
+				if (thisObj.length < previousLength)
+					thisObj.sparse.DeleteRange(thisObj.length, previousLength - thisObj.length);
+			}
+		
 		}
 
 
@@ -229,7 +232,7 @@ namespace Nitrassic.Library
 		/// <returns> A property descriptor containing the property value and attributes. </returns>
 		/// <remarks> The prototype chain is not searched. </remarks>
 		[JSProperties(Hidden=true)]
-		public override PropertyDescriptor GetOwnPropertyDescriptor(uint index)
+		public PropertyDescriptor GetOwnPropertyDescriptor(uint index)
 		{
 			if (this.dense != null)
 			{
@@ -242,64 +245,128 @@ namespace Nitrassic.Library
 			// The array is sparse and therefore has "holes".
 			return new PropertyDescriptor(this.sparse[index], PropertyAttributes.FullAccess);
 		}
-
+		
 		/// <summary>
-		/// Sets the value of the property with the given array index.  If a property with the
-		/// given index does not exist, or exists in the prototype chain (and is not a setter) then
-		/// a new property is created.
+		/// Gets or sets the value of an array-indexed property.
 		/// </summary>
-		/// <param name="index"> The array index of the property to set. </param>
-		/// <param name="value"> The value to set the property to.  This must be a javascript
-		/// primitive (double, string, etc) or a class derived from <see cref="ObjectInstance"/>. </param>
-		/// <param name="throwOnError"> <c>true</c> to throw an exception if the property could not
-		/// be set.  This can happen if the property is read-only or if the object is sealed. </param>
-		[JSProperties(Hidden=true)]
-		public override void SetPropertyValue(uint index, object value, bool throwOnError)
+		/// <param name="index"> The index of the property to retrieve. </param>
+		/// <returns> The property value, or <c>null</c> if the property doesn't exist. </returns>
+		public object this[string index]
 		{
-			value = value ?? Undefined.Value;
-			if (this.dense != null)
+			get
 			{
-				if (index < this.length)
-				{
-					// The index is inside the existing bounds of the array.
-					this.dense[index] = value;
+				uint intIndex=ParseArrayIndex(index);
+				
+				if(intIndex==uint.MaxValue){
+					
+					// It's textual - read from lookup.
+					return lookup[index];
+					
 				}
-				else if (index < this.dense.Length)
-				{
-					// The index is outside the bounds of the array but inside the allocated buffer.
-					this.dense[index] = value;
-					this.denseMayContainHoles = this.denseMayContainHoles || index > this.length;
-					this.length = index + 1;
+				
+				return this[intIndex];
+				
+			}
+			set
+			{
+				uint intIndex=ParseArrayIndex(index);
+				
+				if(intIndex==uint.MaxValue){
+					
+					// It's textual.
+					lookup[index]=value;
+					return;
+					
 				}
-				else
+				
+				this[intIndex]=value;
+				
+			}
+		}
+		
+		/// <summary>
+		/// Gets or sets the value of an array-indexed property.
+		/// </summary>
+		/// <param name="index"> The index of the property to retrieve. </param>
+		/// <returns> The property value, or <c>null</c> if the property doesn't exist. </returns>
+		public object this[int index]
+		{
+			get
+			{
+				if (index < 0)
+					throw new ArgumentOutOfRangeException("index");
+				return this[(uint)index];
+			}
+			set
+			{
+				if (index < 0)
+					throw new ArgumentOutOfRangeException("index");
+				this[(uint)index]=value;
+			}
+		}
+		
+		/// <summary>
+		/// Sets the value of the property with the given array index.
+		/// </summary>
+		public object this[uint index]{
+			get{
+				
+				if(this.dense!=null)
 				{
-					// The index is out of range - either enlarge the array or switch to sparse.
-					if (index < this.dense.Length + 10)
+					return dense[index];
+				}
+				
+				return sparse[index];
+				
+			}
+			set{
+				
+				value = value ?? Undefined.Value;
+				
+				if (this.dense != null)
+				{
+					if (index < this.length)
 					{
-						// Enlarge the dense array.
-						ResizeDenseArray((uint)(this.dense.Length * 2 + 10), this.length);
-
-						// Set the value.
+						// The index is inside the existing bounds of the array.
+						this.dense[index] = value;
+					}
+					else if (index < this.dense.Length)
+					{
+						// The index is outside the bounds of the array but inside the allocated buffer.
 						this.dense[index] = value;
 						this.denseMayContainHoles = this.denseMayContainHoles || index > this.length;
+						this.length = index + 1;
 					}
 					else
 					{
-						// Switch to a sparse array.
-						this.sparse = SparseArray.FromDenseArray(this.dense, (int)this.length);
-						this.dense = null;
-						this.sparse[index] = value;
-					}
+						// The index is out of range - either enlarge the array or switch to sparse.
+						if (index < this.dense.Length + 10)
+						{
+							// Enlarge the dense array.
+							ResizeDenseArray((uint)(this.dense.Length * 2 + 10), this.length);
 
-					// Update the length.
-					this.length = index + 1;
+							// Set the value.
+							this.dense[index] = value;
+							this.denseMayContainHoles = this.denseMayContainHoles || index > this.length;
+						}
+						else
+						{
+							// Switch to a sparse array.
+							this.sparse = SparseArray.FromDenseArray(this.dense, (int)this.length);
+							this.dense = null;
+							this.sparse[index] = value;
+						}
+
+						// Update the length.
+						this.length = index + 1;
+					}
 				}
-			}
-			else
-			{
-				// Set the value and update the length.
-				this.sparse[index] = value;
-				this.length = Math.Max(this.length, index + 1);
+				else
+				{
+					// Set the value and update the length.
+					this.sparse[index] = value;
+					this.length = Math.Max(this.length, index + 1);
+				}
 			}
 		}
 
@@ -313,7 +380,7 @@ namespace Nitrassic.Library
 		/// not exist; <c>false</c> if the property was marked as non-configurable and
 		/// <paramref name="throwOnError"/> was <c>false</c>. </returns>
 		[JSProperties(Hidden=true)]
-		public override bool Delete(uint index, bool throwOnError)
+		public bool Delete(uint index, bool throwOnError)
 		{
 			if (this.dense != null)
 			{
@@ -324,58 +391,12 @@ namespace Nitrassic.Library
 				this.sparse.Delete(index);
 			return true;
 		}
-
-		/// <summary>
-		/// Defines or redefines the value and attributes of a property.  The prototype chain is
-		/// not searched so if the property exists but only in the prototype chain a new property
-		/// will be created.
-		/// </summary>
-		/// <param name="propertyName"> The name of the property to modify. </param>
-		/// <param name="descriptor"> The property value and attributes. </param>
-		/// <param name="throwOnError"> <c>true</c> to throw an exception if the property could not
-		/// be set.  This can happen if the property is not configurable or the object is sealed. </param>
-		/// <returns> <c>true</c> if the property was successfully modified; <c>false</c> otherwise. </returns>
-		[JSProperties(Hidden=true)]
-		public override SchemaProperty DefineProperty(string propertyName, PropertyDescriptor descriptor, bool throwOnError)
-		{
-			// Make sure the property name isn't actually an array index.
-			uint arrayIndex = ParseArrayIndex(propertyName);
-			if (arrayIndex != uint.MaxValue)
-			{
-				// Spec violation: array elements are never accessor properties.
-				if (descriptor.IsAccessor == true)
-				{
-					if (throwOnError == true)
-						throw new JavaScriptException(this.Engine, "TypeError", string.Format("Accessors are not supported for array elements.", propertyName));
-					return SchemaProperty.Undefined;
-				}
-
-				// Spec violation: array elements are always full access.
-				if (descriptor.Attributes != PropertyAttributes.FullAccess)
-				{
-					if (throwOnError == true)
-						throw new JavaScriptException(this.Engine, "TypeError", string.Format("Non-accessible array elements are not supported.", propertyName));
-					return SchemaProperty.Undefined;
-				}
-
-				// The only thing that is supported is setting the value.
-				object value = descriptor.Value ?? Undefined.Value;
-				if (this.dense != null)
-					this.dense[arrayIndex] = value;
-				else
-					this.sparse[arrayIndex] = value;
-				return SchemaProperty.Undefined;
-			}
-
-			// Delegate to the base class.
-			return base.DefineProperty(propertyName, descriptor, throwOnError);
-		}
-
+		
 		/// <summary>
 		/// Gets an enumerable list of every property name and value associated with this object.
 		/// </summary>
 		[JSProperties(Hidden=true)]
-		public override IEnumerable<PropertyNameAndValue> Properties
+		public IEnumerable<object> PropertyValues
 		{
 			get
 			{
@@ -386,7 +407,7 @@ namespace Nitrassic.Library
 					{
 						object arrayElementValue = this.dense[i];
 						if (arrayElementValue != null)
-							yield return new PropertyNameAndValue(i.ToString(), arrayElementValue, PropertyAttributes.FullAccess);
+							yield return arrayElementValue;
 					}
 				}
 				else
@@ -397,24 +418,61 @@ namespace Nitrassic.Library
 						{
 							object arrayElementValue = this.sparse[i];
 							if (arrayElementValue != null)
-								yield return new PropertyNameAndValue(i.ToString(), arrayElementValue, PropertyAttributes.FullAccess);
+								yield return arrayElementValue;
 						}
 				}
-
+				
+			}
+		}
+		
+		/// <summary>
+		/// Gets an enumerable list of every property name and value associated with this object.
+		/// </summary>
+		[JSProperties(Hidden=true)]
+		public IEnumerable<string> Properties
+		{
+			get
+			{
+				if (this.dense != null)
+				{
+					// Enumerate dense array indices.
+					for (uint i = 0; i < this.dense.Length; i++)
+					{
+						object arrayElementValue = this.dense[i];
+						if (arrayElementValue != null)
+							yield return i.ToString();
+					}
+				}
+				else
+				{
+					// Enumerate sparse array indices.
+					foreach (var range in this.sparse.Ranges)
+						for (uint i = range.StartIndex; i < range.StartIndex + range.Array.Length; i++)
+						{
+							object arrayElementValue = this.sparse[i];
+							if (arrayElementValue != null)
+								yield return i.ToString();
+						}
+				}
+				
+				/*
 				// Delegate to the base implementation.
 				foreach (var nameAndValue in HostProperties)
 					yield return nameAndValue;
+				*/
 			}
 		}
-
+		
+		/*
 		[JSProperties(Hidden=true)]
-		public IEnumerable<PropertyNameAndValue> HostProperties
+		public IEnumerator<string> HostProperties
 		{
 			get
 			{
 				return base.Properties;
 			}
 		}
+		*/
 		
 		//	 JAVASCRIPT FUNCTIONS
 		//_________________________________________________________________________________________
@@ -427,7 +485,7 @@ namespace Nitrassic.Library
 		/// <param name="items"> Any number of items to append. </param>
 		/// <returns> A new array consisting of the values of this array plus any number of
 		/// additional items. </returns>
-		public static Nitrassic.Library.Array Concat(ObjectInstance thisObj, params object[] items)
+		public static Nitrassic.Library.Array Concat(ScriptEngine engine,Array thisObj, params object[] items)
 		{
 			// Create a new items array with the thisObj at the beginning.
 			var temp = new object[items.Length + 1];
@@ -442,14 +500,14 @@ namespace Nitrassic.Library
 			foreach (object item in items)
 				if (item is Nitrassic.Library.Array)
 				{
-					length += ((Nitrassic.Library.Array)item).Length - 1;
+					length += ((Nitrassic.Library.Array)item).length - 1;
 					if (((Nitrassic.Library.Array)item).dense == null)
 						dense = false;
 				}
 
 			// This method only supports arrays of length up to 2^31-1, rather than 2^32-1.
 			if (length > int.MaxValue)
-				throw new JavaScriptException(thisObj.Engine, "RangeError", "The resulting array is too long");
+				throw new JavaScriptException(engine, "RangeError", "The resulting array is too long");
 
 			if (dense == true)
 			{
@@ -463,15 +521,15 @@ namespace Nitrassic.Library
 					{
 						// Add the items in the array to the end of the resulting array.
 						var array = (Nitrassic.Library.Array)item;
-						System.Array.Copy(array.dense, 0, result, index, (int)array.Length);
-						if (array.denseMayContainHoles == true && array.Prototype != null)
+						System.Array.Copy(array.dense, 0, result, index, (int)array.length);
+						if (array.denseMayContainHoles == true && array.lookup != null)
 						{
 							// Populate holes from the prototype.
 							for (uint i = 0; i < array.length; i++)
 								if (array.dense[i] == null)
-									result[index + i] = array.Prototype.GetPropertyValue(i);
+									result[index + i] = array.lookup.GetPropertyValue(i);
 						}
-						index += (int)array.Length;
+						index += (int)array.length;
 					}
 					else
 					{
@@ -481,7 +539,7 @@ namespace Nitrassic.Library
 				}
 
 				// Return the new dense array.
-				return new Nitrassic.Library.Array(thisObj.Engine, result);
+				return new Nitrassic.Library.Array(result);
 			}
 			else
 			{
@@ -497,27 +555,27 @@ namespace Nitrassic.Library
 						var array = (Nitrassic.Library.Array)item;
 						if (array.dense != null)
 						{
-							result.CopyTo(array.dense, (uint)index, (int)array.Length);
-							if (array.Prototype != null)
+							result.CopyTo(array.dense, (uint)index, (int)array.length);
+							if (array.lookup != null)
 							{
-								// Populate holes from the prototype.
+								// Populate holes from the lookup.
 								for (uint i = 0; i < array.length; i++)
 									if (array.dense[i] == null)
-										result[(uint)index + i] = array.Prototype.GetPropertyValue(i);
+										result[(uint)index + i] = array.lookup.GetPropertyValue(i);
 							}
 						}
 						else
 						{
 							result.CopyTo(array.sparse, (uint)index);
-							if (array.Prototype != null)
+							if (array.lookup != null)
 							{
-								// Populate holes from the prototype.
-								for (uint i = 0; i < array.Length; i++)
+								// Populate holes from the lookup.
+								for (uint i = 0; i < array.length; i++)
 									if (array.sparse[i] == null)
-										result[(uint)index + i] = array.Prototype.GetPropertyValue(i);
+										result[(uint)index + i] = array.lookup.GetPropertyValue(i);
 							}
 						}
-						index += (int)array.Length;
+						index += (int)array.length;
 					}
 					else
 					{
@@ -528,7 +586,7 @@ namespace Nitrassic.Library
 				}
 
 				// Return the new sparse array.
-				return new Nitrassic.Library.Array(thisObj.Engine, result, length);
+				return new Nitrassic.Library.Array(result, length);
 			}
 		}
 
@@ -539,7 +597,7 @@ namespace Nitrassic.Library
 		/// <param name="thisObj"> The array that is being operated on. </param>
 		/// <param name="separator"> The string to use as a separator. </param>
 		/// <returns> A string that consists of the element values separated by the separator string. </returns>
-		public static string Join(ObjectInstance thisObj, string separator)
+		public static string Join(ScriptEngine engine,Array thisObj, string separator)
 		{
 			
 			if(separator==null)
@@ -550,7 +608,7 @@ namespace Nitrassic.Library
 
 			// This method only supports strings of length up to 2^31-1.
 			if (arrayLength > int.MaxValue / 2)
-				throw new JavaScriptException(thisObj.Engine, "RangeError", "The array is too long");
+				throw new JavaScriptException(engine, "RangeError", "The array is too long");
 
 			var result = new System.Text.StringBuilder((int)arrayLength * 2);
 			try
@@ -568,7 +626,7 @@ namespace Nitrassic.Library
 			}
 			catch (ArgumentOutOfRangeException)
 			{
-				throw new JavaScriptException(thisObj.Engine, "RangeError", "The array is too long");
+				throw new JavaScriptException(engine, "RangeError", "The array is too long");
 			}
 			return result.ToString();
 		}
@@ -578,12 +636,13 @@ namespace Nitrassic.Library
 		/// </summary>
 		/// <param name="thisObj"> The array to operate on. </param>
 		/// <returns> The last element from the array. </returns>
-		public static object Pop(ObjectInstance thisObj)
+		public static object Pop(Array thisObj)
 		{
 			// If the "this" object is an array, use the fast version of this method.
-			if (thisObj is Nitrassic.Library.Array)
-				return ((Nitrassic.Library.Array)thisObj).Pop();
-
+			// if (thisObj is Nitrassic.Library.Array)
+			return thisObj.Pop();
+			
+			/*
 			// Get the length of the array.
 			uint arrayLength = GetLength(thisObj);
 
@@ -608,6 +667,8 @@ namespace Nitrassic.Library
 
 			// Return the last element.
 			return lastElement;
+			*/
+			
 		}
 
 		/// <summary>
@@ -627,11 +688,7 @@ namespace Nitrassic.Library
 			{
 				// Get the last value.
 				var result = this.dense[this.length];
-
-				// If the element does not exist in this array, it may exist in the prototype.
-				if (result == null && this.Prototype != null)
-					result = this.Prototype.GetPropertyValue(this.length);
-
+				
 				// Delete it from the array.
 				this.dense[this.length] = null;
 
@@ -646,11 +703,7 @@ namespace Nitrassic.Library
 			{
 				// Get the last value.
 				var result = this.sparse[this.length];
-
-				// If the element does not exist in this array, it may exist in the prototype.
-				if (result == null && this.Prototype != null)
-					result = this.Prototype.GetPropertyValue(this.length);
-
+				
 				// Delete it from the array.
 				this.sparse.Delete(this.length);
 
@@ -664,12 +717,12 @@ namespace Nitrassic.Library
 		/// </summary>
 		/// <param name="thisObj"> The array that is being operated on. </param>
 		/// <param name="items"> The items to append to the array. </param>
-		public static double Push(ObjectInstance thisObj, params object[] items)
+		public static double Push(ScriptEngine engine,Array thisObj, params object[] items)
 		{
 			// If the "this" object is an array, use the fast version of this method.
-			if (thisObj is Nitrassic.Library.Array && items.Length == 1)
-				return ((Nitrassic.Library.Array)thisObj).Push(items[0]);
-
+			return thisObj.Push(engine,items[0]);
+			
+			/*
 			// Get the length of the array.
 			uint arrayLength = GetLength(thisObj);
 
@@ -682,17 +735,17 @@ namespace Nitrassic.Library
 				for (int i = 0; i < items.Length; i++)
 				{
 					// Append the new item to the array.
-					thisObj.SetPropertyValue((arrayLength2++).ToString(), items[i], true);
+					thisObj[(arrayLength2++)]=items[i];
 				}
 				SetLength(thisObj, uint.MaxValue);
-				throw new JavaScriptException(thisObj.Engine, "RangeError", "Invalid array length");
+				throw new JavaScriptException(engine, "RangeError", "Invalid array length");
 			}
 
 			// For each item to append.
 			for (int i = 0; i < items.Length; i++)
 			{
 				// Append the new item to the array.
-				thisObj.SetPropertyValue(arrayLength ++, items[i], true);
+				thisObj[arrayLength ++]=items[i];
 			}
 
 			// Update the length property.
@@ -700,21 +753,23 @@ namespace Nitrassic.Library
 
 			// Return the new length.
 			return (double)arrayLength;
+			*/
 		}
 
 		/// <summary>
 		/// Appends one element to the end of the array.
 		/// </summary>
 		/// <param name="item"> The item to append to the array. </param>
-		internal int Push(object item)
+		internal int Push(ScriptEngine engine,object item)
 		{
+			
 			if (this.length == uint.MaxValue)
 			{
 				// Even though attempting to push more items than can fit in the array raises an
 				// error, the items are still pushed correctly (but the length is stuck at the
 				// maximum).
-				SetPropertyValue(this.length.ToString(), item, false);
-				throw new JavaScriptException(this.Engine, "RangeError", "Invalid array length");
+				this[this.length]=item;
+				throw new JavaScriptException(engine, "RangeError", "Invalid array length");
 			}
 
 			if (this.dense != null)
@@ -741,7 +796,7 @@ namespace Nitrassic.Library
 		/// </summary>
 		/// <param name="thisObj"> The array that is being operated on. </param>
 		/// <returns> The array that is being operated on. </returns>
-		public static ObjectInstance Reverse(ObjectInstance thisObj)
+		public static Array Reverse(Array thisObj)
 		{
 			// Get the length of the array.
 			uint arrayLength = GetLength(thisObj);
@@ -773,7 +828,7 @@ namespace Nitrassic.Library
 		/// </summary>
 		/// <param name="thisObj"> The array that is being operated on. </param>
 		/// <returns> The first element in the array. </returns>
-		public static object Shift(ObjectInstance thisObj)
+		public static object Shift(ScriptEngine engine,Array thisObj)
 		{
 			// Get the length of the array.
 			uint arrayLength = GetLength(thisObj);
@@ -781,7 +836,7 @@ namespace Nitrassic.Library
 			// Return undefined if the array is empty.
 			if (arrayLength == 0)
 			{
-				SetLength(thisObj, 0);
+				SetLength(engine,thisObj, 0);
 				return Undefined.Value;
 			}
 
@@ -802,7 +857,7 @@ namespace Nitrassic.Library
 			thisObj.Delete(arrayLength - 1, true);
 
 			// Update the length property.
-			SetLength(thisObj, arrayLength - 1);
+			SetLength(engine,thisObj, arrayLength - 1);
 
 			// Return the first element.
 			return firstElement;
@@ -819,7 +874,7 @@ namespace Nitrassic.Library
 		/// <paramref name="end"/> is less than or equal to <paramref name="start"/> then an empty
 		/// array is returned. </param>
 		/// <returns> A section of an array. </returns>
-		public static Nitrassic.Library.Array Slice(ObjectInstance thisObj, int start, int end)
+		public static Nitrassic.Library.Array Slice(ScriptEngine engine,Array thisObj, int start, int end)
 		{
 			
 			if(end==0)
@@ -830,7 +885,7 @@ namespace Nitrassic.Library
 
 			// This method only supports arrays of length up to 2^31-1.
 			if (arrayLength > int.MaxValue)
-				throw new JavaScriptException(thisObj.Engine, "RangeError", "The array is too long");
+				throw new JavaScriptException(engine, "RangeError", "The array is too long");
 
 			// Fix the arguments so they are positive and within the bounds of the array.
 			if (start < 0)
@@ -838,7 +893,7 @@ namespace Nitrassic.Library
 			if (end < 0)
 				end += (int)arrayLength;
 			if (end <= start)
-				return Nitrassic.Library.Array.New(thisObj.Engine,new object[0]);
+				return Nitrassic.Library.Array.New(engine,new object[0]);
 			start = Math.Min(Math.Max(start, 0), (int)arrayLength);
 			end = Math.Min(Math.Max(end, 0), (int)arrayLength);
 
@@ -848,7 +903,7 @@ namespace Nitrassic.Library
 			{
 				result[i] = thisObj[(uint)(start + i)];
 			}
-			return Nitrassic.Library.Array.New(thisObj.Engine,result);
+			return Nitrassic.Library.Array.New(engine,result);
 		}
 
 		/// <summary>
@@ -860,7 +915,7 @@ namespace Nitrassic.Library
 		/// less than the second argument, zero if the arguments are equal or a number greater than
 		/// zero if the first argument is greater than Defaults to an ascending ASCII ordering. </param>
 		/// <returns> The array that was sorted. </returns>
-		public static ObjectInstance Sort(ObjectInstance thisObj, FunctionInstance comparisonFunction)
+		public static Array Sort(ScriptEngine engine,Array thisObj, FunctionInstance comparisonFunction)
 		{
 			// Get the length of the array.
 			uint arrayLength = GetLength(thisObj);
@@ -903,7 +958,7 @@ namespace Nitrassic.Library
 						return 1f;
 					if (b == Undefined.Value)
 						return -1f;
-					return TypeConverter.ToNumber(comparisonFunction.CallLateBound(null, a, b));
+					return TypeConverter.ToNumber(comparisonFunction.CallLateBound(engine,null, a, b));
 				}; 
 
 			try
@@ -913,7 +968,7 @@ namespace Nitrassic.Library
 			}
 			catch (IndexOutOfRangeException)
 			{
-				throw new JavaScriptException(thisObj.Engine, "TypeError", "Invalid comparison function");
+				throw new JavaScriptException(engine, "TypeError", "Invalid comparison function");
 			}
 
 			return thisObj;
@@ -927,14 +982,14 @@ namespace Nitrassic.Library
 		/// <param name="deleteCount"> The number of elements to delete. </param>
 		/// <param name="items"> The items to insert. </param>
 		/// <returns> An array containing the deleted elements, if any. </returns>
-		public static Nitrassic.Library.Array Splice(ObjectInstance thisObj, int start, int deleteCount, params object[] items)
+		public static Nitrassic.Library.Array Splice(ScriptEngine engine,Array thisObj, int start, int deleteCount, params object[] items)
 		{
 			// Get the length of the array.
 			uint arrayLength = GetLength(thisObj);
 
 			// This method only supports arrays of length up to 2^31-1.
 			if (arrayLength > int.MaxValue)
-				throw new JavaScriptException(thisObj.Engine, "RangeError", "The array is too long");
+				throw new JavaScriptException(engine, "RangeError", "The array is too long");
 
 			// Fix the arguments so they are positive and within the bounds of the array.
 			if (start < 0)
@@ -965,14 +1020,14 @@ namespace Nitrassic.Library
 				for (int i = newLength - 1; i >= start + items.Length; i--)
 					thisObj[(uint)i] = thisObj[(uint)(i - offset)];
 			}
-			SetLength(thisObj, (uint)newLength);
+			SetLength(engine,thisObj, (uint)newLength);
 
 			// Insert the new elements.
 			for (int i = 0; i < items.Length; i++)
 				thisObj[(uint)(start + i)] = items[i];
 
 			// Return the deleted items.
-			return Nitrassic.Library.Array.New(thisObj.Engine,deletedItems);
+			return Nitrassic.Library.Array.New(engine,deletedItems);
 		}
 
 		/// <summary>
@@ -981,22 +1036,22 @@ namespace Nitrassic.Library
 		/// <param name="thisObj"> The array that is being operated on. </param>
 		/// <param name="items"> The items to prepend. </param>
 		/// <returns> The new length of the array. </returns>
-		public static uint Unshift(ObjectInstance thisObj, params object[] items)
+		public static uint Unshift(ScriptEngine engine,Array thisObj, params object[] items)
 		{
 			// If the "this" object is an array and the array is dense, use the fast version of this method.
-			var array = thisObj as Nitrassic.Library.Array;
+			var array = thisObj; // as Nitrassic.Library.Array;
 			if (array != null && array.dense != null)
 			{
 				// Dense arrays are supported up to 2^32-1.
 				if (array.length + items.Length > int.MaxValue)
-					throw new JavaScriptException(thisObj.Engine, "RangeError", "Invalid array length");
+					throw new JavaScriptException(engine, "RangeError", "Invalid array length");
 
-				if (array.denseMayContainHoles == true && array.Prototype != null)
+				if (array.denseMayContainHoles == true && array.lookup != null)
 				{
-					// Find all the holes and populate them from the prototype.
+					// Find all the holes and populate them from the lookup.
 					for (uint i = 0; i < array.length; i++)
 						if (array.dense[i] == null)
-							array.dense[i] = array.Prototype.GetPropertyValue(i);
+							array.dense[i] = array.lookup.GetPropertyValue(i);
 				}
 
 				// Allocate some more space if required.
@@ -1022,10 +1077,10 @@ namespace Nitrassic.Library
 
 			// This method supports arrays of length up to 2^32-1.
 			if (uint.MaxValue - arrayLength < items.Length)
-				throw new JavaScriptException(thisObj.Engine, "RangeError", "Invalid array length");
+				throw new JavaScriptException(engine, "RangeError", "Invalid array length");
 
 			// Update the length property.
-			SetLength(thisObj, arrayLength + (uint)items.Length);
+			SetLength(engine,thisObj, arrayLength + (uint)items.Length);
 
 			// Shift all the items up.
 			for (int i = (int)arrayLength - 1; i >= 0; i--)
@@ -1033,7 +1088,7 @@ namespace Nitrassic.Library
 
 			// Prepend the new items.
 			for (uint i = 0; i < items.Length; i++)
-				thisObj.SetPropertyValue(i, items[i], true);
+				thisObj[i]=items[i];
 			
 			// Return the new length of the array.
 			return arrayLength + (uint)items.Length;
@@ -1044,14 +1099,14 @@ namespace Nitrassic.Library
 		/// </summary>
 		/// <param name="thisObj"> The array that is being operated on. </param>
 		/// <returns> A locale-specific string representing this object. </returns>
-		public static string ToLocaleString(ObjectInstance thisObj)
+		public static string ToLocaleString(ScriptEngine engine,Array thisObj)
 		{
 			// Get the length of the array.
 			var arrayLength = GetLength(thisObj);
 
 			// This method only supports arrays of length up to 2^30-1.
 			if (arrayLength > int.MaxValue / 2)
-				throw new JavaScriptException(thisObj.Engine, "RangeError", "The array is too long");
+				throw new JavaScriptException(engine, "RangeError", "The array is too long");
 
 			var result = new System.Text.StringBuilder((int)arrayLength * 2);
 
@@ -1071,7 +1126,7 @@ namespace Nitrassic.Library
 					var element = thisObj[i];
 
 					// Convert the element to a string and append it to the result.
-					Prototype obj2=TypeConverter.ToPrototype(element,thisObj.Engine);
+					Prototype obj2=TypeConverter.ToPrototype(element,engine);
 					
 					if (obj2!=null){
 						
@@ -1084,7 +1139,7 @@ namespace Nitrassic.Library
 			}
 			catch (ArgumentOutOfRangeException)
 			{
-				throw new JavaScriptException(thisObj.Engine, "RangeError", "The array is too long");
+				throw new JavaScriptException(engine, "RangeError", "The array is too long");
 			}
 
 			return result.ToString();
@@ -1095,15 +1150,10 @@ namespace Nitrassic.Library
 		/// </summary>
 		/// <param name="thisObj"> The array that is being operated on. </param>
 		/// <returns> A string representing this object. </returns>
-		public static string ToString(ObjectInstance thisObj)
+		public static string ToString(ScriptEngine engine,Array thisObj)
 		{
 			// Try calling thisObj.join().
-			object result;
-			if (thisObj.TryCallMemberFunction(out result, "join") == true)
-				return TypeConverter.ToString(result);
-
-			// Otherwise, use the default Object.prototype.toString() method.
-			return ObjectInstance.ToString(thisObj.Engine, thisObj);
+			return Join(engine,thisObj,",");
 		}
 
 
@@ -1120,14 +1170,14 @@ namespace Nitrassic.Library
 		/// <param name="fromIndex"> The array index to start searching. </param>
 		/// <returns> The index of the given search element in the array, or <c>-1</c> if the
 		/// element wasn't found. </returns>
-		public static int IndexOf(ObjectInstance thisObj, object searchElement, int fromIndex)
+		public static int IndexOf(ScriptEngine engine,Array thisObj, object searchElement, int fromIndex)
 		{
 			// Get the length of the array.
 			uint arrayLength = GetLength(thisObj);
 
 			// This method only supports arrays of length up to 2^31-1.
 			if (arrayLength > int.MaxValue)
-				throw new JavaScriptException(thisObj.Engine, "RangeError", "The array is too long");
+				throw new JavaScriptException(engine, "RangeError", "The array is too long");
 
 			// If fromIndex is less than zero, it is an offset from the end of the array.
 			if (fromIndex < 0)
@@ -1155,9 +1205,9 @@ namespace Nitrassic.Library
 		/// <param name="searchElement"> The value to search for. </param>
 		/// <returns> The index of the given search element in the array, or <c>-1</c> if the
 		/// element wasn't found. </returns>
-		public static int LastIndexOf(ObjectInstance thisObj, object searchElement)
+		public static int LastIndexOf(ScriptEngine engine,Array thisObj, object searchElement)
 		{
-			return LastIndexOf(thisObj, searchElement, int.MaxValue);
+			return LastIndexOf(engine, thisObj, searchElement, int.MaxValue);
 		}
 
 		/// <summary>
@@ -1169,14 +1219,14 @@ namespace Nitrassic.Library
 		/// <param name="fromIndex"> The array index to start searching. </param>
 		/// <returns> The index of the given search element in the array, or <c>-1</c> if the
 		/// element wasn't found. </returns>
-		public static int LastIndexOf(ObjectInstance thisObj, object searchElement, int fromIndex)
+		public static int LastIndexOf(ScriptEngine engine, Array thisObj, object searchElement, int fromIndex)
 		{
 			// Get the length of the array.
 			uint arrayLength = GetLength(thisObj);
 
 			// This method only supports arrays of length up to 2^31-1.
 			if (arrayLength > int.MaxValue)
-				throw new JavaScriptException(thisObj.Engine, "RangeError", "The array is too long");
+				throw new JavaScriptException(engine, "RangeError", "The array is too long");
 
 			// If fromIndex is less than zero, it is an offset from the end of the array.
 			if (fromIndex < 0)
@@ -1208,18 +1258,18 @@ namespace Nitrassic.Library
 		/// <param name="context"> The value of <c>this</c> in the context of the callback function. </param>
 		/// <returns> <c>true</c> if every element of the array matches criteria defined by the
 		/// given user-defined function; <c>false</c> otherwise. </returns>
-		public static bool Every(ObjectInstance thisObj, FunctionInstance callbackFunction, ObjectInstance context)
+		public static bool Every(ScriptEngine engine, Array thisObj, FunctionInstance callbackFunction, ObjectInstance context)
 		{
 			// callbackFunction must be a valid function.
 			if (callbackFunction == null)
-				throw new JavaScriptException(thisObj.Engine, "TypeError", "Invalid callback function");
+				throw new JavaScriptException(engine, "TypeError", "Invalid callback function");
 
 			// Get the length of the array.
 			uint arrayLength = GetLength(thisObj);
 
 			// This method only supports arrays of length up to 2^31-1.
 			if (arrayLength > int.MaxValue)
-				throw new JavaScriptException(thisObj.Engine, "RangeError", "The array is too long");
+				throw new JavaScriptException(engine, "RangeError", "The array is too long");
 
 			for (int i = 0; i < arrayLength; i ++)
 			{
@@ -1230,7 +1280,7 @@ namespace Nitrassic.Library
 				if (elementValue != null)
 				{
 					// Call the callback function.
-					if (TypeConverter.ToBoolean(callbackFunction.CallLateBound(context, elementValue, i, thisObj)) == false)
+					if (TypeConverter.ToBoolean(callbackFunction.CallLateBound(engine,context, elementValue, i, thisObj)) == false)
 						return false;
 				}
 			}
@@ -1249,18 +1299,18 @@ namespace Nitrassic.Library
 		/// <param name="context"> The value of <c>this</c> in the context of the callback function. </param>
 		/// <returns> <c>true</c> if at least one element of the array matches criteria defined by
 		/// the given user-defined function; <c>false</c> otherwise. </returns>
-		public static bool Some(ObjectInstance thisObj, FunctionInstance callbackFunction, ObjectInstance context)
+		public static bool Some(ScriptEngine engine,Array thisObj, FunctionInstance callbackFunction, ObjectInstance context)
 		{
 			// callbackFunction must be a valid function.
 			if (callbackFunction == null)
-				throw new JavaScriptException(thisObj.Engine, "TypeError", "Invalid callback function");
+				throw new JavaScriptException(engine, "TypeError", "Invalid callback function");
 
 			// Get the length of the array.
 			uint arrayLength = GetLength(thisObj);
 
 			// This method only supports arrays of length up to 2^31-1.
 			if (arrayLength > int.MaxValue)
-				throw new JavaScriptException(thisObj.Engine, "RangeError", "The array is too long");
+				throw new JavaScriptException(engine, "RangeError", "The array is too long");
 
 			for (int i = 0; i < arrayLength; i++)
 			{
@@ -1271,7 +1321,7 @@ namespace Nitrassic.Library
 				if (elementValue != null)
 				{
 					// Call the callback function.
-					if (TypeConverter.ToBoolean(callbackFunction.CallLateBound(context, elementValue, i, thisObj)) == true)
+					if (TypeConverter.ToBoolean(callbackFunction.CallLateBound(engine,context, elementValue, i, thisObj)) == true)
 						return true;
 				}
 			}
@@ -1286,18 +1336,18 @@ namespace Nitrassic.Library
 		/// array.  This function is called with three arguments: the value of the element, the
 		/// index of the element, and the array that is being operated on. </param>
 		/// <param name="context"> The value of <c>this</c> in the context of the callback function. </param>
-		public static void ForEach(ObjectInstance thisObj, FunctionInstance callbackFunction, ObjectInstance context)
+		public static void ForEach(ScriptEngine engine,Array thisObj, FunctionInstance callbackFunction, ObjectInstance context)
 		{
 			// callbackFunction must be a valid function.
 			if (callbackFunction == null)
-				throw new JavaScriptException(thisObj.Engine, "TypeError", "Invalid callback function");
+				throw new JavaScriptException(engine, "TypeError", "Invalid callback function");
 
 			// Get the length of the array.
 			uint arrayLength = GetLength(thisObj);
 
 			// This method only supports arrays of length up to 2^31-1.
 			if (arrayLength > int.MaxValue)
-				throw new JavaScriptException(thisObj.Engine, "RangeError", "The array is too long");
+				throw new JavaScriptException(engine, "RangeError", "The array is too long");
 
 			for (int i = 0; i < arrayLength; i++)
 			{
@@ -1308,7 +1358,7 @@ namespace Nitrassic.Library
 				if (elementValue != null)
 				{
 					// Call the callback function.
-					callbackFunction.CallLateBound(context, elementValue, i, thisObj);
+					callbackFunction.CallLateBound(engine,context, elementValue, i, thisObj);
 				}
 			}
 		}
@@ -1325,22 +1375,22 @@ namespace Nitrassic.Library
 		/// <param name="context"> The value of <c>this</c> in the context of the callback function. </param>
 		/// <returns> A new array with the results of calling the given function on every element
 		/// in the array. </returns>
-		public static Nitrassic.Library.Array Map(ObjectInstance thisObj, FunctionInstance callbackFunction, ObjectInstance context)
+		public static Nitrassic.Library.Array Map(ScriptEngine engine,Array thisObj, FunctionInstance callbackFunction, ObjectInstance context)
 		{
 			// callbackFunction must be a valid function.
 			if (callbackFunction == null)
-				throw new JavaScriptException(thisObj.Engine, "TypeError", "Invalid callback function");
+				throw new JavaScriptException(engine, "TypeError", "Invalid callback function");
 
 			// Get the length of the array.
 			uint arrayLength = GetLength(thisObj);
 
 			// This method only supports arrays of length up to 2^31-1.
 			if (arrayLength > int.MaxValue)
-				throw new JavaScriptException(thisObj.Engine, "RangeError", "The array is too long");
+				throw new JavaScriptException(engine, "RangeError", "The array is too long");
 
 			// Create a new array to hold the new values.
 			// The length of the output array is always equal to the length of the input array.
-			var resultArray = new Nitrassic.Library.Array(thisObj.Engine, arrayLength, arrayLength);
+			var resultArray = new Nitrassic.Library.Array(arrayLength, arrayLength);
 
 			for (int i = 0; i < arrayLength; i++)
 			{
@@ -1351,7 +1401,7 @@ namespace Nitrassic.Library
 				if (elementValue != null)
 				{
 					// Call the callback function.
-					object result = callbackFunction.CallLateBound(context, elementValue, i, thisObj);
+					object result = callbackFunction.CallLateBound(engine,context, elementValue, i, thisObj);
 
 					// Store the result.
 					resultArray[(uint)i] = result;
@@ -1372,18 +1422,18 @@ namespace Nitrassic.Library
 		/// return <c>true</c> or <c>false</c>. </param>
 		/// <param name="context"> The value of <c>this</c> in the context of the callback function. </param>
 		/// <returns> The first element that results in the callback returning <c>true</c>. </returns>
-		public static object Find(ObjectInstance thisObj, FunctionInstance callbackFunction, ObjectInstance context)
+		public static object Find(ScriptEngine engine,Array thisObj, FunctionInstance callbackFunction, ObjectInstance context)
 		{
 			// callbackFunction must be a valid function.
 			if (callbackFunction == null)
-				throw new JavaScriptException(thisObj.Engine, "TypeError", "Invalid callback function");
+				throw new JavaScriptException(engine, "TypeError", "Invalid callback function");
 
 			// Get the length of the array.
 			uint arrayLength = GetLength(thisObj);
 
 			// This method only supports arrays of length up to 2^31-1.
 			if (arrayLength > int.MaxValue)
-				throw new JavaScriptException(thisObj.Engine, "RangeError", "The array is too long");
+				throw new JavaScriptException(engine, "RangeError", "The array is too long");
 
 			for (int i = 0; i < arrayLength; i++)
 			{
@@ -1394,7 +1444,7 @@ namespace Nitrassic.Library
 				if (elementValue != null)
 				{
 					// Call the callback function.
-					bool result = TypeConverter.ToBoolean(callbackFunction.CallLateBound(context, elementValue, i, thisObj));
+					bool result = TypeConverter.ToBoolean(callbackFunction.CallLateBound(engine,context, elementValue, i, thisObj));
 
 					// Return if the result was true.
 					if (result == true)
@@ -1418,21 +1468,21 @@ namespace Nitrassic.Library
 		/// <param name="context"> The value of <c>this</c> in the context of the callback function. </param>
 		/// <returns> A copy of this array but with only those elements which produce <c>true</c>
 		/// when passed to the provided function. </returns>
-		public static Nitrassic.Library.Array Filter(ObjectInstance thisObj, FunctionInstance callbackFunction, ObjectInstance context)
+		public static Nitrassic.Library.Array Filter(ScriptEngine engine,Array thisObj, FunctionInstance callbackFunction, ObjectInstance context)
 		{
 			// callbackFunction must be a valid function.
 			if (callbackFunction == null)
-				throw new JavaScriptException(thisObj.Engine, "TypeError", "Invalid callback function");
+				throw new JavaScriptException(engine, "TypeError", "Invalid callback function");
 
 			// Get the length of the array.
 			uint arrayLength = GetLength(thisObj);
 
 			// This method only supports arrays of length up to 2^31-1.
 			if (arrayLength > int.MaxValue)
-				throw new JavaScriptException(thisObj.Engine, "RangeError", "The array is too long");
+				throw new JavaScriptException(engine, "RangeError", "The array is too long");
 
 			// Create a new array to hold the new values.
-			var result = Nitrassic.Library.Array.New(thisObj.Engine);
+			var result = Nitrassic.Library.Array.New(engine);
 
 			for (int i = 0; i < arrayLength; i++)
 			{
@@ -1443,11 +1493,11 @@ namespace Nitrassic.Library
 				if (elementValue != null)
 				{
 					// Call the callback function.
-					bool includeInArray = TypeConverter.ToBoolean(callbackFunction.CallLateBound(context, elementValue, i, thisObj));
+					bool includeInArray = TypeConverter.ToBoolean(callbackFunction.CallLateBound(engine,context, elementValue, i, thisObj));
 
 					// Store the result if the callback function returned true.
 					if (includeInArray == true)
-						result.Push(elementValue);
+						result.Push(engine,elementValue);
 				}
 			}
 			return result;
@@ -1465,18 +1515,18 @@ namespace Nitrassic.Library
 		/// <param name="initialValue"> The initial accumulated value. </param>
 		/// <returns> The accumulated value returned from the last invocation of the callback
 		/// function. </returns>
-		public static object Reduce(ObjectInstance thisObj, FunctionInstance callbackFunction, object initialValue)
+		public static object Reduce(ScriptEngine engine,Array thisObj, FunctionInstance callbackFunction, object initialValue)
 		{
 			// callbackFunction must be a valid function.
 			if (callbackFunction == null)
-				throw new JavaScriptException(thisObj.Engine, "TypeError", "Invalid callback function");
+				throw new JavaScriptException(engine, "TypeError", "Invalid callback function");
 
 			// Get the length of the array.
 			uint arrayLength = GetLength(thisObj);
 
 			// This method only supports arrays of length up to 2^31-1.
 			if (arrayLength > int.MaxValue)
-				throw new JavaScriptException(thisObj.Engine, "RangeError", "The array is too long");
+				throw new JavaScriptException(engine, "RangeError", "The array is too long");
 
 			// If an initial value is not provided, the initial value is the first (defined) element.
 			int i = 0;
@@ -1493,7 +1543,7 @@ namespace Nitrassic.Library
 					}
 				}
 				if (accumulatedValue == null)
-					throw new JavaScriptException(thisObj.Engine, "TypeError", "Reduce of empty array with no initial value");
+					throw new JavaScriptException(engine, "TypeError", "Reduce of empty array with no initial value");
 			}
 
 			// Scan from low to high.
@@ -1506,7 +1556,7 @@ namespace Nitrassic.Library
 				if (elementValue != null)
 				{
 					// Call the callback function.
-					accumulatedValue = callbackFunction.CallLateBound(Undefined.Value, accumulatedValue, elementValue, i, thisObj);
+					accumulatedValue = callbackFunction.CallLateBound(engine,Undefined.Value, accumulatedValue, elementValue, i, thisObj);
 				}
 			}
 
@@ -1526,18 +1576,18 @@ namespace Nitrassic.Library
 		/// <param name="initialValue"> The initial accumulated value. </param>
 		/// <returns> The accumulated value returned from the last invocation of the callback
 		/// function. </returns>
-		public static object ReduceRight(ObjectInstance thisObj, FunctionInstance callbackFunction, object initialValue)
+		public static object ReduceRight(ScriptEngine engine,Array thisObj, FunctionInstance callbackFunction, object initialValue)
 		{
 			// callbackFunction must be a valid function.
 			if (callbackFunction == null)
-				throw new JavaScriptException(thisObj.Engine, "TypeError", "Invalid callback function");
+				throw new JavaScriptException(engine, "TypeError", "Invalid callback function");
 
 			// Get the length of the array.
 			uint arrayLength = GetLength(thisObj);
 
 			// This method only supports arrays of length up to 2^31-1.
 			if (arrayLength > int.MaxValue)
-				throw new JavaScriptException(thisObj.Engine, "RangeError", "The array is too long");
+				throw new JavaScriptException(engine, "RangeError", "The array is too long");
 
 			// If an initial value is not provided, the initial value is the last (defined) element.
 			int i = (int)arrayLength - 1;
@@ -1554,7 +1604,7 @@ namespace Nitrassic.Library
 					}
 				}
 				if (accumulatedValue == null)
-					throw new JavaScriptException(thisObj.Engine, "TypeError", "Reduce of empty array with no initial value");
+					throw new JavaScriptException(engine, "TypeError", "Reduce of empty array with no initial value");
 			}
 
 			// Scan from high to to low.
@@ -1567,7 +1617,7 @@ namespace Nitrassic.Library
 				if (elementValue != null)
 				{
 					// Call the callback function.
-					accumulatedValue = callbackFunction.CallLateBound(Undefined.Value, accumulatedValue, elementValue, i, thisObj);
+					accumulatedValue = callbackFunction.CallLateBound(engine,Undefined.Value, accumulatedValue, elementValue, i, thisObj);
 				}
 			}
 
@@ -1584,11 +1634,10 @@ namespace Nitrassic.Library
 		/// </summary>
 		/// <param name="thisObj"> The array that is being operated on. </param>
 		/// <returns> The number of items in the array. </returns>
-		private static uint GetLength(ObjectInstance thisObj)
+		private static uint GetLength(Array thisObj)
 		{
-			if (thisObj is Nitrassic.Library.Array)
-				return ((Nitrassic.Library.Array)thisObj).length;
-			return TypeConverter.ToUint32(thisObj["length"]);
+			return thisObj.length;
+			// return TypeConverter.ToUint32(thisObj["length"]);
 		}
 
 		/// <summary>
@@ -1596,12 +1645,9 @@ namespace Nitrassic.Library
 		/// </summary>
 		/// <param name="thisObj"> The array that is being operated on. </param>
 		/// <param name="value"> The new value of the length property. </param>
-		private static void SetLength(ObjectInstance thisObj, uint value)
+		private static void SetLength(ScriptEngine engine,Array thisObj, uint value)
 		{
-			if (thisObj is Nitrassic.Library.Array)
-				((Nitrassic.Library.Array)thisObj).Length = value;
-			else
-				thisObj.SetPropertyValue("length", (double)value, true);
+			set_Length(engine,thisObj,(int)value);
 		}
 
 		/// <summary>
@@ -1625,7 +1671,7 @@ namespace Nitrassic.Library
 		/// <param name="comparer"> A comparison function. </param>
 		/// <param name="start"> The first index in the range. </param>
 		/// <param name="end"> The last index in the range. </param>
-		private static void QuickSort(ObjectInstance array, OnCompare comparer, uint start, uint end)
+		private static void QuickSort(Array array, OnCompare comparer, uint start, uint end)
 		{
 			if (end - start < 30)
 			{
@@ -1675,7 +1721,7 @@ namespace Nitrassic.Library
 		/// <param name="comparer"> A comparison function. </param>
 		/// <param name="start"> The first index in the range. </param>
 		/// <param name="end"> The last index in the range. </param>
-		private static void InsertionSort(ObjectInstance array, OnCompare comparer, uint start, uint end)
+		private static void InsertionSort(Array array, OnCompare comparer, uint start, uint end)
 		{
 			for (uint i = start + 1; i <= end; i++)
 			{
@@ -1703,7 +1749,7 @@ namespace Nitrassic.Library
 		/// <param name="array"> The array object. </param>
 		/// <param name="index1"> The location of the first element. </param>
 		/// <param name="index2"> The location of the second element. </param>
-		private static void Swap(ObjectInstance array, uint index1, uint index2)
+		private static void Swap(Array array, uint index1, uint index2)
 		{
 			object temp = array[index1];
 			array[index1] = array[index2];
@@ -1716,7 +1762,7 @@ namespace Nitrassic.Library
 		/// </summary>
 		public static Nitrassic.Library.Array New(ScriptEngine engine)
 		{
-			return new Nitrassic.Library.Array(engine, 0, 10);
+			return new Nitrassic.Library.Array(0, 10);
 		}
 
 		/// <summary>
@@ -1730,10 +1776,10 @@ namespace Nitrassic.Library
 			{
 				var temp = new object[elements.Length];
 				System.Array.Copy(elements, temp, elements.Length);
-				return new Nitrassic.Library.Array(engine, elements);
+				return new Nitrassic.Library.Array(elements);
 			}
 
-			return new Nitrassic.Library.Array(engine, elements);
+			return new Nitrassic.Library.Array(elements);
 		}
 
 
@@ -1756,7 +1802,7 @@ namespace Nitrassic.Library
 					uint actualLength = TypeConverter.ToUint32(elements[0]);
 					if (specifiedLength != (double)actualLength)
 						throw new JavaScriptException(engine, "RangeError", "Invalid array length");
-					return new Nitrassic.Library.Array(engine, actualLength, actualLength);
+					return new Nitrassic.Library.Array(actualLength, actualLength);
 				}
 			}
 

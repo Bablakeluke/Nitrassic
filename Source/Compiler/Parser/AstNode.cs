@@ -6,7 +6,7 @@ namespace Nitrassic.Compiler
 	/// <summary>
 	/// Represents the base class of expressions and statements.
 	/// </summary>
-	internal abstract class AstNode
+	public abstract class AstNode
 	{
 		private static AstNode[] emptyNodeList = new AstNode[0];
 
@@ -40,5 +40,22 @@ namespace Nitrassic.Compiler
 		/// <param name="generator"> The generator to output the CIL to. </param>
 		/// <param name="optimizationInfo"> Information about any optimizations that should be performed. </param>
 		public abstract void GenerateCode(ILGenerator generator, OptimizationInfo optimizationInfo);
+		
+		/// <summary>
+		/// Resolves variables and property references.
+		/// </summary>
+		internal virtual void ResolveVariables(OptimizationInfo optimizationInfo)
+		{
+			
+			// Resolve all child nodes:
+			foreach(AstNode child in ChildNodes){
+				
+				// Resolve now:
+				child.ResolveVariables(optimizationInfo);
+				
+			}
+			
+		}
+		
 	}
 }

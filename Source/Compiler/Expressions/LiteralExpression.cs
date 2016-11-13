@@ -53,20 +53,97 @@ namespace Nitrassic.Compiler
 		{
 			// Array literal.
 			if (this.Value is List<Expression>)
-				return typeof(Library.ObjectInstance);
+				return typeof(Library.Array);
 
 			// Object literal.
-			if (this.Value is Dictionary<string, object>)
-				return typeof(Library.ObjectInstance);
-
+			if (this.Value is Dictionary<string, object>){
+				return CreatedPrototype.Type;
+			}
+			
 			// RegExp literal.
 			if (this.Value is RegularExpressionLiteral)
-				return typeof(Library.ObjectInstance);
-
+				return typeof(Library.RegExp);
+			
 			// Everything else.
 			return Value.GetType();
 		}
-
+		
+		private Library.Prototype CreatedPrototype;
+		
+		internal override void ResolveVariables(OptimizationInfo optimizationInfo){
+			
+			// Resolve kids too:
+			base.ResolveVariables(optimizationInfo);
+			
+			// Is it an object literal?
+			var properties =this.Value as List<KeyValuePair<Expression, Expression>>;
+			
+			if(properties==null){
+				
+				// Not an object literal! How about an array?
+				
+				// Get the expressions:
+				List<Expression> exprs=this.Value as List<Expression>;
+				
+				if(exprs==null){
+					// Not an array either! Quit there.
+					return;
+				}
+				
+				// For each one..
+				foreach(Expression expr in exprs){
+					
+					// Resolve it:
+					expr.ResolveVariables(optimizationInfo);
+					
+				}
+				
+				return;
+			}
+			
+			if(CreatedPrototype!=null){
+				// Already made it!
+				return;
+			}
+			
+			// We'll generate a prototype and a custom object type for it:
+			CreatedPrototype=optimizationInfo.Engine.Prototypes.Create();
+			
+			// We'll generate a prototype and a custom object type for it:
+			Library.Prototype proto=CreatedPrototype;
+			
+			foreach (var keyValuePair in properties)
+			{
+				
+				string propertyName = keyValuePair.Key.ToString();
+				Expression propertyValue = keyValuePair.Value;
+				
+				if (propertyValue is Expression)
+				{
+					// Add a new property to the object.
+					
+					var dataPropertyValue = (Expression)propertyValue;
+					
+					// Resolve it:
+					dataPropertyValue.ResolveVariables(optimizationInfo);
+					
+					Type valueType=dataPropertyValue.GetResultType(optimizationInfo);
+					
+					// Create the property now:
+					Library.PropertyVariable pv=proto.AddProperty(propertyName,Library.PropertyAttributes.FullAccess,valueType);
+					
+					// If it's a function value then it might be constant.
+					// It might be a constant string/ number too, so track them as well.
+					pv.TryLoadConstant(dataPropertyValue);
+					
+				}
+				else{
+					throw new InvalidOperationException("Invalid property value type in object literal.");
+				}
+				
+			}
+		}
+		
 		/// <summary>
 		/// Generates CIL for the expression.
 		/// </summary>
@@ -76,9 +153,9 @@ namespace Nitrassic.Compiler
 		{
 			// Literals cannot have side-effects so if a return value is not expected then generate
 			// nothing.
-			//if (optimizationInfo.SuppressReturnValue == true) 
-			//	return;
-
+			if (optimizationInfo.RootExpression==this) 
+				return;
+			
 			if (this.Value is int)
 				generator.LoadInt32((int)this.Value);
 			else if (this.Value is double)
@@ -144,6 +221,7 @@ namespace Nitrassic.Compiler
 				// object[]
 				generator.LoadInt32(arrayLiteral.Count);
 				generator.NewArray(typeof(object));
+				
 				for (int i = 0; i < arrayLiteral.Count; i ++)
 				{
 					// Operands for StoreArrayElement() are: an array (object[]), index (int), value (object).
@@ -159,6 +237,7 @@ namespace Nitrassic.Compiler
 						generator.LoadNull();
 					else
 					{
+						
 						elementExpression.GenerateCode(generator, optimizationInfo);
 						EmitConversion.ToAny(generator, elementExpression.GetResultType(optimizationInfo));
 					}
@@ -169,59 +248,56 @@ namespace Nitrassic.Compiler
 
 				// ArrayConstructor.New(object[])
 				generator.Call(ReflectionHelpers.Array_New);
+				
 			}
-			else if (this.Value is Dictionary<string, object>)
+			else if (this.Value is List<KeyValuePair<Expression, Expression>>)
 			{
 				// This is an object literal.
-				var properties = (Dictionary<string, object>)this.Value;
-
+				var properties = (List<KeyValuePair<Expression, Expression>>)this.Value;
+				
+				// We'll generate a prototype and a custom object type for it:
+				Library.Prototype proto=CreatedPrototype;
+				
 				// Create a new object.
-				EmitHelpers.LoadEngine(generator);
-				generator.Call(ReflectionHelpers.Object_Construct);
-
+				generator.NewObject(proto.TypeConstructor);
+				
 				foreach (var keyValuePair in properties)
 				{
-					string propertyName = keyValuePair.Key;
-					object propertyValue = keyValuePair.Value;
-
+					
+					string propertyName = keyValuePair.Key.ToString();
+					Expression propertyValue = keyValuePair.Value;
+					
+					// Duplicate the object ref:
 					generator.Duplicate();
-					generator.LoadString(propertyName);
-					if (propertyValue is Expression)
-					{
-						// Add a new property to the object.
-						var dataPropertyValue = (Expression)propertyValue;
-						dataPropertyValue.GenerateCode(generator, optimizationInfo);
-						EmitConversion.ToAny(generator, dataPropertyValue.GetResultType(optimizationInfo));
-						generator.LoadBoolean(optimizationInfo.StrictMode);
-						generator.Call(ReflectionHelpers.ObjectInstance_SetPropertyValue_String);
-					}
-					else if (propertyValue is Parser.ObjectLiteralAccessor)
-					{
-						// Add a new getter/setter to the object.
-						var accessorValue = (Parser.ObjectLiteralAccessor)propertyValue;
-						if (accessorValue.Getter != null)
-						{
-							accessorValue.Getter.GenerateCode(generator, optimizationInfo);
-							EmitConversion.ToAny(generator, accessorValue.Getter.GetResultType(optimizationInfo));
+					
+					// Add a new property to the object.
+					
+					Type valueType=propertyValue.GetResultType(optimizationInfo);
+					
+					// Get the property:
+					Library.PropertyVariable pv=proto.GetProperty(propertyName);
+					
+					// Set it:
+					pv.Set(generator,optimizationInfo,false,valueType,delegate(bool two){
+						
+						if(pv.IsConstant){
+							
+							// Emit the constant:
+							EmitHelpers.EmitValue(generator,pv.ConstantValue);
+							
+						}else{
+						
+							// Write the value to set now:
+							propertyValue.GenerateCode(generator, optimizationInfo);
+							
 						}
-						else
-							generator.LoadNull();
-						if (accessorValue.Setter != null)
-						{
-							accessorValue.Setter.GenerateCode(generator, optimizationInfo);
-							EmitConversion.ToAny(generator, accessorValue.Setter.GetResultType(optimizationInfo));
-						}
-						else
-							generator.LoadNull();
-						generator.LoadInt32((int)Library.PropertyAttributes.FullAccess);
-						generator.NewObject(ReflectionHelpers.PropertyDescriptor_Constructor3);
-						generator.LoadBoolean(false);
-						generator.Call(ReflectionHelpers.ObjectInstance_DefineProperty);
-						generator.Pop();
-					}
-					else
-						throw new InvalidOperationException("Invalid property value type in object literal.");
+						
+						// Note: This one always ignores 'two'
+						
+					});
+					
 				}
+				
 			}
 			else
 				throw new NotImplementedException("Unknown literal type.");
@@ -248,35 +324,18 @@ namespace Nitrassic.Compiler
 			}
 
 			// Object literal.
-			if (this.Value is Dictionary<string, object>)
+			if (this.Value is List<KeyValuePair<Expression, Expression>>)
 			{
 				var result = new System.Text.StringBuilder("{");
-				foreach (var keyValuePair in (Dictionary<string, object>)this.Value)
+				foreach (var keyValuePair in (List<KeyValuePair<Expression, Expression>>)this.Value)
 				{
-					if (result.Length > 1)
+					if (result.Length > 1){
 						result.Append(", ");
-					if (keyValuePair.Value is Expression)
-					{
+						
 						result.Append(keyValuePair.Key);
 						result.Append(": ");
 						result.Append(keyValuePair.Value);
 
-					}
-					else if (keyValuePair.Value is Parser.ObjectLiteralAccessor)
-					{
-						var accessor = (Parser.ObjectLiteralAccessor)keyValuePair.Value;
-						if (accessor.Getter != null)
-						{
-							result.Append("get ");
-							result.Append(accessor.Getter.ToString().Substring(9));
-							if (accessor.Setter != null)
-								result.Append(", ");
-						}
-						if (accessor.Setter != null)
-						{
-							result.Append("set ");
-							result.Append(accessor.Setter.ToString().Substring(9));
-						}
 					}
 				}
 				result.Append("}");

@@ -74,7 +74,94 @@ namespace Nitrassic.Compiler
 			}
 			return null;
 		}
-
+		
+		internal override void ResolveVariables(OptimizationInfo optimizationInfo){
+			
+			// First, resolve kids:
+			base.ResolveVariables(optimizationInfo);
+			
+			// Next, get the target:
+			var target = this.GetOperand(0) as IReferenceExpression;
+			
+			if (target == null)
+			{
+				// Emit an error message.
+				switch (this.OperatorType)
+				{
+					case OperatorType.PostIncrement:
+					case OperatorType.PostDecrement:
+						
+						throw new JavaScriptException(
+							optimizationInfo,
+							"ReferenceError",
+							"Invalid left-hand side in postfix operation"
+						);
+						
+					case OperatorType.PreIncrement:
+					case OperatorType.PreDecrement:
+						
+						throw new JavaScriptException(
+							optimizationInfo,
+							"ReferenceError",
+							"Invalid left-hand side in prefix operation"
+						);
+						
+					case OperatorType.Assignment:
+					default:
+						
+						throw new JavaScriptException(
+							optimizationInfo,
+							"ReferenceError",
+							"Invalid left-hand side in assignment"
+						);
+						
+				}
+				
+			}
+			
+			// The left hand side cannot be "arguments" or "eval" in strict mode.
+			if (optimizationInfo.StrictMode){
+				
+				NameExpression expr=target as NameExpression;
+				
+				if(expr!=null && (expr.Name == "eval" || expr.Name=="arguments")){
+					
+					throw new JavaScriptException(
+						optimizationInfo.Engine,
+						"SyntaxError",
+						"The variable '"+expr.Name+"' cannot be modified in strict mode.",
+						1,
+						optimizationInfo.Source.Path,
+						optimizationInfo.FunctionName
+					);
+					
+				}
+				
+			}
+			
+			
+			if(this.OperatorType == OperatorType.Assignment){
+				
+				// Potentially transferring a constant here.
+				// Note that all of the others affect the source value in some way
+				// so this is the only one which can potentially transfer a constant like this.
+				target.TryApplyConstant(optimizationInfo,GetOperand(1));
+			
+			}else{
+			
+				// Ensure it's not constant:
+				target.TryApplyConstant(optimizationInfo,false);
+				
+			}
+			
+			// Get the type being set:
+			Type resultType=GetResultType(optimizationInfo);
+			
+			// Apply it to the target:
+			target.ApplyType(optimizationInfo,resultType);
+			
+		}
+		
 		/// <summary>
 		/// Gets the type that results from evaluating this expression.
 		/// </summary>
@@ -84,10 +171,25 @@ namespace Nitrassic.Compiler
 			if (type == OperatorType.PostIncrement ||
 				type == OperatorType.PostDecrement ||
 				type == OperatorType.PreIncrement ||
-				type == OperatorType.PreDecrement)
-				return typeof(double);
-			if (type == OperatorType.Assignment)
+				type == OperatorType.PreDecrement){
+					
+				// If the input var is an int, the out is an int too:
+				Type input=GetOperand(0).GetResultType(optimizationInfo);
+				
+				if(input==typeof(int) || input==typeof(uint) || input==typeof(short) || input==typeof(ushort)){
+					return input;
+				}else if(input==typeof(double)){
+					return typeof(double);
+				}else{
+					throw new Exception("Unable to increment/ decrement that (not a suitable type). "+input);
+				}
+				
+			}
+			
+			if (type == OperatorType.Assignment){
 				return this.GetOperand(1).GetResultType(optimizationInfo);
+			}
+			
 			var compoundOperator = new BinaryExpression(GetCompoundBaseOperator(type), this.GetOperand(0), this.GetOperand(1));
 			return compoundOperator.GetResultType(optimizationInfo);
 		}
@@ -101,38 +203,7 @@ namespace Nitrassic.Compiler
 		{
 			// The left hand side needs to be a variable reference or member access.
 			var target = this.GetOperand(0) as IReferenceExpression;
-			if (target == null)
-			{
-				// Emit an error message.
-				switch (this.OperatorType)
-				{
-					case OperatorType.PostIncrement:
-					case OperatorType.PostDecrement:
-						EmitHelpers.EmitThrow(generator, "ReferenceError", "Invalid left-hand side in postfix operation", optimizationInfo);
-						break;
-					case OperatorType.PreIncrement:
-					case OperatorType.PreDecrement:
-						EmitHelpers.EmitThrow(generator, "ReferenceError", "Invalid left-hand side in prefix operation", optimizationInfo);
-						break;
-					case OperatorType.Assignment:
-					default:
-						EmitHelpers.EmitThrow(generator, "ReferenceError", "Invalid left-hand side in assignment", optimizationInfo);
-						break;
-				}
-				//if (optimizationInfo.SuppressReturnValue == false)
-					EmitHelpers.EmitDefaultValue(generator, this.GetResultType(optimizationInfo));
-				return;
-			}
-
-			// The left hand side cannot be "arguments" or "eval" in strict mode.
-			if (optimizationInfo.StrictMode == true && target is NameExpression)
-			{
-				if (((NameExpression)target).Name == "eval")
-					throw new JavaScriptException(optimizationInfo.Engine, "SyntaxError", "The variable 'eval' cannot be modified in strict mode.", 1, optimizationInfo.Source.Path, optimizationInfo.FunctionName);
-				if (((NameExpression)target).Name == "arguments")
-					throw new JavaScriptException(optimizationInfo.Engine, "SyntaxError", "The variable 'arguments' cannot be modified in strict mode.", 1, optimizationInfo.Source.Path, optimizationInfo.FunctionName);
-			}
-
+			
 			switch (this.OperatorType)
 			{
 				case OperatorType.Assignment:
@@ -152,12 +223,6 @@ namespace Nitrassic.Compiler
 				case OperatorType.PreDecrement:
 					GenerateIncrementOrDecrement(generator, optimizationInfo, target, false, false);
 					break;
-
-				case OperatorType.CompoundAdd:
-					// Special case +=
-					GenerateCompoundAddAssignment(generator, optimizationInfo, target);
-					break;
-
 				default:
 					// All other compound operators.
 					GenerateCompoundAssignment(generator, optimizationInfo, target);
@@ -176,17 +241,34 @@ namespace Nitrassic.Compiler
 			// Load the value to assign.
 			var rhs = GetOperand(1);
 			
+			// Potentially transferring a constant here.
+			// Note that all of the others affect the source value in some way
+			// so this is the only one which can potentially transfer a constant like this.
+			object constValue=target.GetConstantValue();
+			
 			// Store the value.
-			target.GenerateSet(generator, optimizationInfo, rhs.GetResultType(optimizationInfo), delegate()
+			target.GenerateSet(generator, optimizationInfo,optimizationInfo.RootExpression!=this, rhs.GetResultType(optimizationInfo), delegate(bool two)
 			{
 				
 				// Generate the code:
-				rhs.GenerateCode(generator, optimizationInfo);
 				
-				// Duplicate the value so it remains on the stack afterwards.
-				//if (optimizationInfo.SuppressReturnValue == false)
-				generator.Duplicate();
-
+				if(constValue!=null){
+					
+					// Straight emit the constant value (Note that it could be a function - it handles that for us):
+					EmitHelpers.EmitValue(generator,constValue);
+					
+				}else{
+					
+					rhs.GenerateCode(generator, optimizationInfo);
+					
+				}
+				
+				if(two){
+					
+					// Duplicate the value so it remains on the stack afterwards.
+					generator.Duplicate();
+					
+				}
 				
 			}, optimizationInfo.StrictMode);
 		}
@@ -209,7 +291,7 @@ namespace Nitrassic.Compiler
 			// cannot happen.
 			
 			// Store the value.
-			target.GenerateSet(generator, optimizationInfo, target.GetResultType(optimizationInfo) == typeof(int) ? typeof(int) : typeof(double), delegate()
+			target.GenerateSet(generator, optimizationInfo,optimizationInfo.RootExpression!=this, target.GetResultType(optimizationInfo) == typeof(int) ? typeof(int) : typeof(double), delegate(bool two)
 			{
 				
 				// Get the target value.
@@ -220,7 +302,7 @@ namespace Nitrassic.Compiler
 					EmitConversion.ToNumber(generator, target.GetResultType(optimizationInfo));
 
 				// If this is PostIncrement or PostDecrement, duplicate the value so it can be produced as the return value.
-				if (postfix == true)
+				if (postfix && two)
 					generator.Duplicate();
 
 				// Load the increment constant.
@@ -236,24 +318,12 @@ namespace Nitrassic.Compiler
 					generator.Subtract();
 
 				// If this is PreIncrement or PreDecrement, duplicate the value so it can be produced as the return value.
-				if (postfix == false)
+				if (!postfix && two)
 					generator.Duplicate();
 				
 			}, optimizationInfo.StrictMode);
 		}
-
-		/// <summary>
-		/// Generates CIL for a compound assignment expression.
-		/// </summary>
-		/// <param name="generator"> The generator to output the CIL to. </param>
-		/// <param name="optimizationInfo"> Information about any optimizations that should be performed. </param>
-		/// <param name="target"> The target to modify. </param>
-		private void GenerateCompoundAddAssignment(ILGenerator generator, OptimizationInfo optimizationInfo, IReferenceExpression target)
-		{
-			// Do the standard compound add.
-			GenerateCompoundAssignment(generator, optimizationInfo, target);
-		}
-
+		
 		/// <summary>
 		/// Generates CIL for a compound assignment expression.
 		/// </summary>
@@ -262,20 +332,21 @@ namespace Nitrassic.Compiler
 		/// <param name="target"> The target to modify. </param>
 		private void GenerateCompoundAssignment(ILGenerator generator, OptimizationInfo optimizationInfo, IReferenceExpression target)
 		{
+			
 			// Load the value to assign.
 			var compoundOperator = new BinaryExpression(GetCompoundBaseOperator(this.OperatorType), this.GetOperand(0), this.GetOperand(1));
 			
 			// Store the value.
-			target.GenerateSet(generator, optimizationInfo, compoundOperator.GetResultType(optimizationInfo), delegate()
+			target.GenerateSet(generator, optimizationInfo,optimizationInfo.RootExpression!=this, compoundOperator.GetResultType(optimizationInfo), delegate(bool two)
 			{
 				
 				// Generate the code:
 				compoundOperator.GenerateCode(generator, optimizationInfo);
-			
-				// Duplicate the value so it remains on the stack afterwards.
-				//if (optimizationInfo.SuppressReturnValue == false)
-				generator.Duplicate();
-
+				
+				if(two){
+					// Duplicate the value so it remains on the stack afterwards.
+					generator.Duplicate();
+				}
 				
 			}, optimizationInfo.StrictMode);
 		}
